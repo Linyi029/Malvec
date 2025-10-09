@@ -10,18 +10,46 @@ export default function useFileProcessor(props = {}) {
   const [circleStep, setCircleStep] = useState(0);
   const [circleDone, setCircleDone] = useState([false, false, false]);
   const [bulletPlayKey, setBulletPlayKey] = useState(0);
+  const API_URL = "http://127.0.0.1:8000/api/analyze";
 
-  function startNextFile(file) {
-    if (!file) return;
-    setProcessing(true);
-    setCircleStep(0);
-    setCircleDone([false, false, false]);
-    setBulletPlayKey((k) => k + 1);
 
-    // 模擬 bullet 動畫跑完後才開始圈圈
-    const totalMs = bulletItems.length * 3000 + 2000;
-    setTimeout(() => setCircleStep(1), totalMs);
+//   function startNextFile(file) {
+//     if (!file) return;
+//     setProcessing(true);
+//     setCircleStep(0);
+//     setCircleDone([false, false, false]);
+//     setBulletPlayKey((k) => k + 1);
+
+//     // 模擬 bullet 動畫跑完後才開始圈圈
+//     const totalMs = bulletItems.length * 3000 + 2000;
+//     setTimeout(() => setCircleStep(1), totalMs);
+//   }
+
+async function startNextFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) throw new Error("Server error!");
+
+    const result = await response.json();
+    console.log("✅ Analysis result:", result);
+
+    // 更新 UI
+    setProcessing(false);
+    setActiveQueue([]);
+    alert(`分析完成：${result.csv_path}`);
+  } catch (error) {
+    console.error("❌ Error uploading file:", error);
+    alert("上傳或分析失敗！");
   }
+}
+
 
   function handleCircleDone(idx) {
     setCircleDone((prev) => {
@@ -56,16 +84,15 @@ export default function useFileProcessor(props = {}) {
   }
 
   function handleFiles(files) {
-    const valid = Array.from(files).filter((f) =>
-      f.name.toLowerCase().endsWith(".exe")
-    );
-    if (!processing && activeQueue.length === 0) {
-      setActiveQueue(valid);
-      startNextFile(valid[0]);
-    } else {
-      setPendingQueue((prev) => prev.concat(valid));
-    }
+  const valid = Array.from(files); // ✅ 不再檢查副檔名
+  if (!processing && activeQueue.length === 0) {
+    setActiveQueue(valid);
+    startNextFile(valid[0]);
+  } else {
+    setPendingQueue((prev) => prev.concat(valid));
   }
+}
+
 
   return {
     bulletItems,
