@@ -45,20 +45,84 @@ export default function Home() {
     /** ===== 上傳與動畫流程 Hook ===== */
     const nextId = useRef(1);
 
-    const handleFileDone = (file) => {
-        if (!file) return;
+    // const handleFileDone = (fileResult) => {
+    //     if (!fileResult) return;
+    //     const id = nextId.current++;
+
+    //     // 可根據分析結果給初始預測值
+    //     const pred = randomPred(fileResult.name);
+
+    //     setTrainRows((prev) => [
+    //         {
+    //             id,
+    //             filename: fileResult.name,
+    //             pred,
+    //             trueLabel: "-",
+    //             provision: "",
+    //             //details: fileResult.details, // 🔹 新增這欄，後續分析可用
+    //         },
+    //         ...prev,
+    //     ]);
+    // };
+
+    // const handleFileDone = (fileResult) => {
+    //     if (!fileResult || !fileResult.details) return;
+
+    //     const det = fileResult.details;
+    //     // 🔸 確保三項條件都通過
+    //     if (!(det.is_pe32 && det.is_exe && det.unpack_success)) return;
+
+    //     const id = nextId.current++;
+    //     const pred = randomPred(fileResult.name);
+
+    //     setTrainRows((prev) => [
+    //         {
+    //             id,
+    //             filename: fileResult.name,
+    //             pred,
+    //             trueLabel: "-",
+    //             provision: "",
+    //             details: fileResult.details,
+    //         },
+    //         ...prev,
+    //     ]);
+    // };
+    const handleFileDone = (fileResult) => {
+        if (!fileResult || !fileResult.details) return;
+
+        const det = fileResult.details;
+        const passed = det.is_pe32 && det.is_exe && det.unpack_success ;
+
+        if (!passed) {
+            console.log("❌ File did not pass all checks:", det);
+            return;
+        }
+
+        console.log("✅ Added to training set:", fileResult.name);
         const id = nextId.current++;
-        const pred = randomPred(file.name);
+        const pred = randomPred(fileResult.name);
+
         setTrainRows((prev) => [
-            { id, filename: file.name, pred, trueLabel: "-", provision: "" },
+            {
+                id,
+                filename: fileResult.name,
+                pred,
+                trueLabel: "-",
+                provision: "",
+                details: fileResult.details,
+            },
             ...prev,
         ]);
     };
+
+
+
 
     // 呼叫 useFileProcessor 時傳入 callback
 
     const {
         bulletItems,
+        bulletsTitle,
         bulletPlayKey,
         activeQueue,
         processing,
@@ -150,8 +214,10 @@ export default function Home() {
     };
 
     /** ===== 狀態顯示 ===== */
-    const currentFile = activeQueue[0];
-    const bulletsTitle = currentFile ? `${currentFile.name} has…` : "等待處理的檔案…";
+    //const currentFile = activeQueue[0];
+    //const bulletsTitle = currentFile ? `${currentFile.name}` : "等待處理的檔案…";
+    //const bulletsTitle = currentFile ? `${currentFile.name}` : "等待處理的檔案…";
+
     const remaining = activeQueue.length > 0 ? activeQueue.length : 0;
     const total = activeQueue.length > 0 ? activeQueue.length : 0;
 
@@ -219,7 +285,7 @@ export default function Home() {
                             );
                         })}
                     </div>
-                    <div className="mt-3 text-xs text-slate-500">{processing ? currentFile?.name : ""}</div>
+                    <div className="mt-3 text-xs text-slate-500">{processing ? bulletsTitle : ""} </div>
                 </section>
 
                 {/* 模型待訓練表格 */}

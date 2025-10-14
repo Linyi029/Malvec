@@ -1,5 +1,7 @@
+import json
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import subprocess, os, uuid
 
 app = FastAPI()
@@ -18,46 +20,66 @@ RESULT_DIR = os.path.join(BASE_DIR, "results")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
+app.mount("/results", StaticFiles(directory="results"), name="results")
+
 @app.post("/api/analyze")
 async def analyze(file: UploadFile = File(...)):
-    # 1️⃣ 儲存上傳檔案
-    filename = f"{file.filename}"
+    filename = file.filename
     upload_path = os.path.join(UPLOAD_DIR, filename)
     with open(upload_path, "wb") as f:
         f.write(await file.read())
 
-    # 2️⃣ Docker：同一個 container 連續跑 unpack → disasm
-    details = f"/mnt/project/output/{filename}_details.csv"
-    disasm_csv = f"/mnt/project/output/{filename}_disasm.csv"
+    disasm_csv = os.path.join(RESULT_DIR, f"{filename}_disasm.csv")
+    details_json = os.path.join(RESULT_DIR, f"{filename}_details.json")
+    unpacked_path = f"/mnt/project/output/unpacked_files/unpacked_{filename}"
+
+    
 
     docker_cmd = [
-        "docker", "run", "--rm",
-        "-v", f"{UPLOAD_DIR}:/mnt/project/input",
-        "-v", f"{RESULT_DIR}:/mnt/project/output",
-        "final",  # 你的分析 image 名稱
-        "bash", "-c",
-        (
-            f"python unpack.py /mnt/project/input/{filename} {details} && "
-            f"if [ -f {details} ]; then "
-            f"python disasm.py /mnt/project/output/unpacked_files/unpacked_{filename} {disasm_csv}; "
-            f"else echo '❌ Unpack failed, skipping disasm'; fi"
-        )
+    "docker", "run", "--rm",
+    "-v", f"{UPLOAD_DIR}:/mnt/project/input",
+    "-v", f"{RESULT_DIR}:/mnt/project/output",
+    "final",
+    "bash", "-c",
+    (
+        f"python unpack.py /mnt/project/input/{filename} && "
+        f"if [ -f {unpacked_path} ]; then "
+        f"python disasm.py {unpacked_path} /mnt/project/output/{filename}_disasm.csv; "
+        f"else echo '❌ Unpack failed, skipping disasm'; fi"
+    )
     ]
 
     result = subprocess.run(docker_cmd, capture_output=True, text=True)
 
-    # 3️⃣ 確認分析結果
-    output_csv = os.path.join(RESULT_DIR, f"{filename}_disasm.csv")
-    #unpack_success = os.path.exists(os.path.join(RESULT_DIR, f"{filename}_unpacked.exe"))
-    disasm_success = os.path.exists(output_csv)
+    # print 出 docker log 方便 debug
+    print("=== [Docker STDOUT] ===")
+    print(result.stdout)
+    print("=== [Docker STDERR] ===")
+    print(result.stderr)
 
-    # 4️⃣ 回傳分析結果
+    # 嘗試安全讀取 JSON
+    unpack_info = {}
+    if os.path.exists(details_json):
+        with open(details_json, "r") as jf:
+            content = jf.read().strip()
+            if content:
+                try:
+                    unpack_info = json.loads(content)
+                except json.JSONDecodeError:
+                    unpack_info = {"error": "Invalid JSON format", "raw": content}
+            else:
+                unpack_info = {"error": "Empty JSON file"}
+    else:
+        unpack_info = {"error": "details.json not found"}
+
+    disasm_success = os.path.exists(disasm_csv)
+
     return {
         "filename": filename,
-        #"unpack_success": unpack_success,
+        "details": unpack_info,
+        "disasm_csv": f"http://127.0.0.1:8000/results/{os.path.basename(disasm_csv)}" if disasm_success else None,
         "disasm_success": disasm_success,
-        "csv_path": output_csv if disasm_success else None,
         "status": "done" if disasm_success else "unpack_failed",
-        "stdout": result.stdout[-300:],  # 最後 300 行輸出
-        "stderr": result.stderr[-300:],
+        "stdout": result.stdout[-500:],
+        "stderr": result.stderr[-200:]
     }
