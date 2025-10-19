@@ -1,10 +1,10 @@
-import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 // import MainPage from "./home";   
 // import ReportPage from "./reportpage";  
 // import EvaluationPage from "./evaluation";
-import EvaluationPage from "./evaluation";
-import MainPage from "./home";
-import ReportPage from "./report";
+import MainPage from "./home";   
+import ReportPage from "./report-2";  
+import EvaluationPage from "./evaluation-2";
 
 export default function App() {
   return (
