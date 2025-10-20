@@ -247,7 +247,7 @@ export default function Home() {
                             Select folder
                         </label>
 
-                        <input type="file" accept=".exe" multiple id="filesInput" className="hidden" onChange={onInputChange} />
+                        <input type="file" multiple id="filesInput" className="hidden" onChange={onInputChange} />
                         <label htmlFor="filesInput" className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900 cursor-pointer">
                             Select executables
                         </label>
