@@ -6,14 +6,15 @@ export default function useFileProcessor(props = {}) {
   const [bulletItems, setBulletItems] = useState([
     "Analyzing PE header...",
     "Reading EXE...",
-    "Checking UPX..."
+    "Checking UPX...",
+    "Waiting for prediction..."
   ]);
   const [bulletsTitle, setBulletsTitle] = useState("等待處理的檔案…");
   const [activeQueue, setActiveQueue] = useState([]);
   const [pendingQueue, setPendingQueue] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [circleStep, setCircleStep] = useState(0);
-  const [circleDone, setCircleDone] = useState([false, false, false]);
+  const [circleDone, setCircleDone] = useState([false, false, false, false]);
   const [bulletPlayKey, setBulletPlayKey] = useState(0);
 
   const API_URL = "http://127.0.0.1:8000/api/analyze";
@@ -26,77 +27,27 @@ export default function useFileProcessor(props = {}) {
     setBulletsTitle(file.name);
     setProcessing(true);
     setCircleStep(0);
-    setCircleDone([false, false, false]);
+    setCircleDone([false, false, false, false]);
     setBulletPlayKey((k) => k + 1);
     setBulletItems([
       "Analyzing PE header...",
       "Reading EXE...",
-      "Checking UPX..."
+      "Checking UPX...",
+      "Waiting for prediction..."
     ]);
-
-    // 除錯: 檢查原始檔案
-    console.log(" Processing file:", {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: new Date(file.lastModified).toISOString()
-    });
-
-    //  驗證檔案是否為有效的 PE 檔案
-    try {
-      const headerCheck = await file.slice(0, 2).arrayBuffer();
-      const magic = new Uint8Array(headerCheck);
-      const magicHex = Array.from(magic).map(b => b.toString(16).padStart(2, '0')).join('');
-      
-      console.log("File magic bytes:", magicHex);
-      
-      if (magicHex !== '4d5a') {
-        console.warn("⚠️  File doesn't start with MZ header!");
-        setBulletItems([
-          "❌ Not a valid PE file",
-          `Magic bytes: ${magicHex}`,
-          "Expected: 4d5a (MZ)"
-        ]);
-        setBulletsTitle(`${file.name} — Invalid PE`);
-        setProcessing(false);
-        
-        // 處理下一個檔案
-        setTimeout(() => {
-          setActiveQueue((prev) => {
-            const rest = prev.slice(1);
-            if (rest.length > 0) {
-              startNextFile(rest[0]);
-            } else if (pendingQueue.length > 0) {
-              const nextBatch = pendingQueue.slice();
-              setPendingQueue([]);
-              setActiveQueue(nextBatch);
-              startNextFile(nextBatch[0]);
-            }
-            return rest;
-          });
-        }, 1500);
-        
-        return;
-      }
-    } catch (err) {
-      console.error("Failed to read file header:", err);
-    }
 
     try {
       const formData = new FormData();
-      
-      //  關鍵修正: 明確指定檔名和類型
       formData.append("file", file, file.name);
       
-      console.log(" Uploading to:", API_URL);
+      console.log("📤 Uploading to:", API_URL);
 
       const response = await fetch(API_URL, { 
         method: "POST", 
         body: formData,
-        //  不要設定 Content-Type header,讓瀏覽器自動處理
       });
 
-      console.log(" Response status:", response.status);
+      console.log("📥 Response status:", response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -108,52 +59,82 @@ export default function useFileProcessor(props = {}) {
       console.log("📊 Analysis result:", result);
 
       const det = result.details || {};
+      const pred = result.prediction || {};
       
-      //  除錯: 顯示詳細結果
-      console.log("Details:", {
+      // 🔍 除錯: 顯示詳細結果
+      console.log("🔎 Details:", {
         is_pe32: det.is_pe32,
         is_exe: det.is_exe,
         unpack_success: det.unpack_success,
-        raw: det
+      });
+      
+      console.log("🤗 Prediction:", {
+        final_label: pred.final_label,
+        confidence: pred.confidence,
+        embedding_dimension: pred.embedding?.dimension,
+        embedding_values_length: pred.embedding?.values?.length,
+        embedding_source: pred.embedding?.source_file,
+        attention_score: pred.embedding?.attention_score
       });
 
       const is_pe32 = det.is_pe32 ? "✅ Yes" : "❌ No";
       const is_exe = det.is_exe ? "✅ Yes" : "❌ No";
       const is_upx = det.unpack_success ? "✅ Yes" : "❌ No";
 
+      // 📸 更新子彈點,加入預測結果
+      // const predictionText = pred.final_label 
+      //   ? `Predicted: ${pred.final_label} (${(pred.confidence * 100).toFixed(1)}%)`
+      //   : "Prediction unavailable";
+
       setBulletItems([
         `PE 32-file: ${is_pe32}`,
         `is .exe: ${is_exe}`,
-        `is UPX compressed: ${is_upx}`
+        `is UPX compressed: ${is_upx}`,
+        //predictionText
       ]);
 
       setBulletsTitle(`${file.name} — 分析完成`);
 
-      //  通過條件才送進待訓練資料
+      // ✅ 通過條件才送進待訓練資料,並傳遞完整的 prediction (包含 embedding)
       if (det.is_pe32 && det.is_exe && det.unpack_success) {
-        console.log(" File passed all checks, sending to Home");
+        console.log("✅ File passed all checks, sending to Home");
+        
+        // ✅ 新增：提取完整 768 維 embedding
+        const embedding = pred.embedding?.values || null;
+        
+        if (embedding && Array.isArray(embedding)) {
+          console.log(`✅ Embedding extracted: ${embedding.length} dimensions`);
+          console.log(`   First 5 values: [${embedding.slice(0, 5).map(v => v.toFixed(4)).join(', ')}...]`);
+        } else {
+          console.warn("⚠️ No valid embedding found in prediction");
+        }
+        
         onFileDone?.({
           name: file.name,
           details: det,
-          status: result.status
+          status: result.status,
+          prediction: pred,  // ✅ 傳遞完整的 prediction 物件
+          embedding: embedding,  // ✅ 新增：直接傳遞 768 維 embedding array
+          embeddingInfo: {
+            dimension: pred.embedding?.dimension || 0,
+            source_file: pred.embedding?.source_file || null,
+            attention_score: pred.embedding?.attention_score || 0
+          }
         });
       } else {
-        console.log("File failed checks:", {
-          is_pe32: det.is_pe32,
-          is_exe: det.is_exe,
-          unpack_success: det.unpack_success
-        });
+        console.log("⚠️ File failed checks");
       }
     } catch (err) {
-      console.error("Processing error:", err);
+      console.error("❌ Processing error:", err);
       setBulletItems([
         "分析失敗",
         err.message,
-        "請檢查檔案或伺服器"
+        "請檢查檔案或伺服器",
+        ""
       ]);
       setBulletsTitle(`${file.name} (Error)`);
     } finally {
-      // 延遲結束 processing，讓 UI 穩定顯示結果
+      // 延遲結束 processing,讓 UI 穩定顯示結果
       setTimeout(() => {
         setProcessing(false);
 
@@ -167,7 +148,7 @@ export default function useFileProcessor(props = {}) {
             setActiveQueue(nextBatch);
             startNextFile(nextBatch[0]);
           } else {
-            setBulletsTitle(`${currentFileRef.current} — 已完成 `);
+            setBulletsTitle(`${currentFileRef.current} — 已完成 ✅`);
           }
           return rest;
         });
@@ -181,11 +162,11 @@ export default function useFileProcessor(props = {}) {
     );
     
     if (valid.length === 0) {
-      console.warn("No .exe files found");
+      console.warn("⚠️ No .exe files found");
       return;
     }
 
-    console.log(`Adding ${valid.length} files to queue`);
+    console.log(`📂 Adding ${valid.length} files to queue`);
 
     if (!processing && activeQueue.length === 0) {
       setActiveQueue(valid);

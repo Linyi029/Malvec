@@ -113,10 +113,33 @@ export default function Home() {
 
         const predictedLabel = getPredictedLabel(fileResult);
 
-        console.log("✅ Added to training set:", fileResult.name);
-        console.log("🤗 Prediction(label):", predictedLabel, "raw:", fileResult.prediction);
+       // ✅ 提取完整 768 維 embedding
+        const embedding = fileResult.embedding || 
+                         fileResult.prediction?.embedding?.values || 
+                         null;
+        
+        const embeddingInfo = fileResult.embeddingInfo || {
+            dimension: embedding?.length || 0,
+            source_file: fileResult.prediction?.embedding?.source_file || null,
+            attention_score: fileResult.prediction?.embedding?.attention_score || 0
+        };
+
+        // ✅ 驗證 embedding
+        if (embedding && Array.isArray(embedding)) {
+            console.log("✅ Added to training set:", fileResult.name);
+            console.log("🤗 Prediction (label):", predictedLabel);
+            console.log("📊 Embedding info:", {
+                dimension: embedding.length,
+                source_file: embeddingInfo.source_file,
+                attention_score: embeddingInfo.attention_score,
+                first_5_values: embedding.slice(0, 5).map(v => v.toFixed(4))
+            });
+        } else {
+            console.warn("⚠️ No valid embedding found for:", fileResult.name);
+        }
 
         const id = nextId.current++;
+
 
         setTrainRows((prev) => [
             {
@@ -126,6 +149,12 @@ export default function Home() {
                 trueLabel: "-",
                 provision: "",
                 details: fileResult.details,
+                // ✅ 新增：儲存完整 768 維 embedding 和相關資訊
+                embedding: embedding,  // Array[768] of floats
+                embeddingDimension: embedding?.length || 0,
+                embeddingSource: embeddingInfo.source_file,
+                attentionScore: embeddingInfo.attention_score,
+                confidence: fileResult.prediction?.confidence || 0
             },
             ...prev,
         ]);
@@ -153,12 +182,12 @@ export default function Home() {
     /** ===== 模型待訓練資料 ===== */
     // const nextId = useRef(1);
     const [trainRows, setTrainRows] = useState([]);
-    const randomPred = (filename) => {
-        if (!labelChoices?.length) return "unknown";
-        if (filename.toLowerCase().includes("738cfa86c6b8263638afc7a51ee41863")) return "WORM.AUTOIT";
-        if (filename.toLowerCase().startsWith("dogwaffle")) return "GOODWARE";
-        return labelChoices[Math.floor(Math.random() * labelChoices.length)];
-    };
+    // const randomPred = (filename) => {
+    //     if (!labelChoices?.length) return "unknown";
+    //     if (filename.toLowerCase().includes("738cfa86c6b8263638afc7a51ee41863")) return "WORM.AUTOIT";
+    //     if (filename.toLowerCase().startsWith("dogwaffle")) return "GOODWARE";
+    //     return labelChoices[Math.floor(Math.random() * labelChoices.length)];
+    // };
 
     /** ===== Bulk JSON 匯入 ===== */
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -217,13 +246,19 @@ export default function Home() {
         if (!selectedIds.size) { setTrainOpen(false); return; }
         setTraining(true);
         setTrainCircleKey(k => k + 1);
+        
+        // ✅ 可以在這裡使用 trainRows 中的 embedding 進行訓練
+        const selectedData = trainRows.filter(row => selectedIds.has(row.id));
+        console.log("🚀 Starting training with data:", {
+            total: selectedData.length,
+            with_embedding: selectedData.filter(r => r.embedding).length,
+            sample_embedding_dim: selectedData[0]?.embeddingDimension
+        });
+        
         setTimeout(() => {
             setTraining(false);
             setTrainOpen(false);
             setTrainRows([]);
-            // setActiveQueue([]);
-            // setPendingQueue([]);
-            // setProcessing(false);
             setSelectedIds(new Set());
             setSelectAll(false);
         }, 10000);
@@ -263,7 +298,7 @@ export default function Home() {
                             Select folder
                         </label>
 
-                        <input type="file" accept=".exe" multiple id="filesInput" className="hidden" onChange={onInputChange} />
+                        <input type="file" multiple id="filesInput" className="hidden" onChange={onInputChange} />
                         <label htmlFor="filesInput" className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900 cursor-pointer">
                             Select executables
                         </label>
