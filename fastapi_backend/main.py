@@ -26,8 +26,8 @@ os.makedirs(RESULT_DIR, exist_ok=True)
 app.mount("/results", StaticFiles(directory="results"), name="results")
 
 # ===== HF Space 設定 =====
-HF_SPACE_BASE = "https://malvec-codebert-Malvec.hf.space"  # ✅ 修正: 大寫 M
-HF_TOKEN = os.environ.get("hf_token")  # 可選,如果 Space 是私有的
+HF_SPACE_BASE = "https://malvec-codebert-Malvec.hf.space"
+HF_TOKEN = os.environ.get("hf_token")
 
 async def trigger_hf_prediction(filename: str):
     """
@@ -58,7 +58,7 @@ async def trigger_hf_prediction(filename: str):
     
     print(f"📂 Found {len(txt_files)} segment files")
     
-    # ✅ 一次上傳所有檔案 (移除分批邏輯)
+    # ✅ 一次上傳所有檔案
     predict_url = f"{HF_SPACE_BASE}/predict"
     
     try:
@@ -72,7 +72,7 @@ async def trigger_hf_prediction(filename: str):
         
         print(f"📤 Uploading {len(files)} files to HF Space...")
         
-        async with httpx.AsyncClient(timeout=600.0) as client:  # ✅ 增加 timeout 到 10 分鐘
+        async with httpx.AsyncClient(timeout=600.0) as client:
             headers = {}
             if HF_TOKEN:
                 headers["Authorization"] = f"Bearer {HF_TOKEN}"
@@ -104,6 +104,17 @@ async def trigger_hf_prediction(filename: str):
             print(f"   Embedding dimension: {result.get('embedding', {}).get('dimension', 0)}")
             print(f"   Embedding source: {result.get('embedding', {}).get('source_file', 'N/A')}")
             print(f"   Attention score: {result.get('embedding', {}).get('attention_score', 0):.4f}")
+            
+            # 🔍 新增：檢查 embedding.values 是否存在
+            if 'embedding' in result and 'values' in result['embedding']:
+                embedding_values = result['embedding']['values']
+                print(f"   ✅ Embedding values found: {len(embedding_values)} dimensions")
+                print(f"   First 5 values: {embedding_values[:5]}")
+            else:
+                print(f"   ⚠️ WARNING: No embedding.values found in response!")
+                print(f"   Response keys: {result.keys()}")
+                if 'embedding' in result:
+                    print(f"   Embedding keys: {result['embedding'].keys()}")
             
             return result
             
@@ -234,12 +245,20 @@ async def analyze(file: UploadFile = File(...)):
     
     # ===== 觸發 HF Space 預測 =====
     prediction_result = None
+    
     if disasm_success and unpack_info.get("unpack_success"):
         print("\n🤗 Triggering HF Space prediction...")
         prediction_result = await trigger_hf_prediction(filename)
         
         if prediction_result:
             print(f"✅ Prediction successful: {prediction_result.get('final_label')}")
+            
+            # 🔍 新增：驗證 embedding 是否完整傳遞
+            if 'embedding' in prediction_result and 'values' in prediction_result['embedding']:
+                emb_len = len(prediction_result['embedding']['values'])
+                print(f"✅ Embedding ready to send to frontend: {emb_len} dimensions")
+            else:
+                print(f"⚠️ WARNING: Embedding missing before sending to frontend!")
         else:
             print(f"⚠️  Prediction failed or unavailable")
     else:
@@ -251,8 +270,18 @@ async def analyze(file: UploadFile = File(...)):
         "disasm_csv": f"http://127.0.0.1:8000/results/{os.path.basename(disasm_csv)}" if disasm_success else None,
         "disasm_success": disasm_success,
         "status": "done" if disasm_success else "unpack_failed",
-        "prediction": prediction_result  # 包含 final_label 和 embedding
+        "prediction": prediction_result,  # 包含 final_label 和 embedding
     }
+    
+    # 🔍 最終檢查：確認 response 中包含 embedding
+    print("\n🔍 Final response check:")
+    if response.get('prediction') and response['prediction'].get('embedding'):
+        if 'values' in response['prediction']['embedding']:
+            print(f"✅ Response contains embedding with {len(response['prediction']['embedding']['values'])} values")
+        else:
+            print(f"❌ Response embedding missing 'values' key!")
+    else:
+        print(f"❌ Response missing prediction.embedding!")
     
     print("\n✅ Response ready\n")
     return response
