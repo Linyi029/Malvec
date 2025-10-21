@@ -81,7 +81,7 @@ export default function useFileProcessor(props = {}) {
       const is_exe = det.is_exe ? "✅ Yes" : "❌ No";
       const is_upx = det.unpack_success ? "✅ Yes" : "❌ No";
 
-      // 📸 更新子彈點,加入預測結果
+      // 📸 更新子彈點 (註解掉預測結果顯示)
       // const predictionText = pred.final_label 
       //   ? `Predicted: ${pred.final_label} (${(pred.confidence * 100).toFixed(1)}%)`
       //   : "Prediction unavailable";
@@ -90,7 +90,7 @@ export default function useFileProcessor(props = {}) {
         `PE 32-file: ${is_pe32}`,
         `is .exe: ${is_exe}`,
         `is UPX compressed: ${is_upx}`,
-        //predictionText
+        ""  // ✅ 改成空字串，不顯示預測結果
       ]);
 
       setBulletsTitle(`${file.name} — 分析完成`);
@@ -99,8 +99,11 @@ export default function useFileProcessor(props = {}) {
       if (det.is_pe32 && det.is_exe && det.unpack_success) {
         console.log("✅ File passed all checks, sending to Home");
         
-        // ✅ 新增：提取完整 768 維 embedding
+        // ✅ 提取完整 768 維 embedding
         const embedding = pred.embedding?.values || null;
+        
+        // ✅ 新增：提取 t-SNE 投影座標
+        const tsneProjection = result.tsne_projection || null;
         
         if (embedding && Array.isArray(embedding)) {
           console.log(`✅ Embedding extracted: ${embedding.length} dimensions`);
@@ -109,12 +112,20 @@ export default function useFileProcessor(props = {}) {
           console.warn("⚠️ No valid embedding found in prediction");
         }
         
+        if (tsneProjection) {
+          console.log(`✅ t-SNE projection: (${tsneProjection.x.toFixed(3)}, ${tsneProjection.y.toFixed(3)})`);
+          console.log(`   Confidence: ${tsneProjection.confidence.toFixed(3)}`);
+        } else {
+          console.warn("⚠️ No t-SNE projection found");
+        }
+        
         onFileDone?.({
           name: file.name,
           details: det,
           status: result.status,
           prediction: pred,  // ✅ 傳遞完整的 prediction 物件
-          embedding: embedding,  // ✅ 新增：直接傳遞 768 維 embedding array
+          embedding: embedding,  // ✅ 直接傳遞 768 維 embedding array
+          tsneProjection: tsneProjection,  // ✅ 新增：t-SNE 投影座標
           embeddingInfo: {
             dimension: pred.embedding?.dimension || 0,
             source_file: pred.embedding?.source_file || null,
@@ -157,12 +168,17 @@ export default function useFileProcessor(props = {}) {
   }
 
   function handleFiles(files) {
-    const valid = Array.from(files).filter(f => 
-      f.name.toLowerCase().endsWith('.exe')
-    );
+    // ✅ 接受 .exe 檔案或沒有副檔名的檔案 (Unix executables)
+    const valid = Array.from(files).filter(f => {
+      const name = f.name.toLowerCase();
+      const hasExeExtension = name.endsWith('.exe');
+      const hasNoExtension = !name.includes('.');
+      
+      return hasExeExtension || hasNoExtension;
+    });
     
     if (valid.length === 0) {
-      console.warn("⚠️ No .exe files found");
+      console.warn("⚠️ No executable files found (.exe or Unix executables)");
       return;
     }
 

@@ -45,48 +45,9 @@ export default function Home() {
     /** ===== 上傳與動畫流程 Hook ===== */
     const nextId = useRef(1);
 
-    // const handleFileDone = (fileResult) => {
-    //     if (!fileResult) return;
-    //     const id = nextId.current++;
-
-    //     // 可根據分析結果給初始預測值
-    //     const pred = randomPred(fileResult.name);
-
-    //     setTrainRows((prev) => [
-    //         {
-    //             id,
-    //             filename: fileResult.name,
-    //             pred,
-    //             trueLabel: "-",
-    //             provision: "",
-    //             //details: fileResult.details, // 🔹 新增這欄，後續分析可用
-    //         },
-    //         ...prev,
-    //     ]);
-    // };
-
-    // const handleFileDone = (fileResult) => {
-    //     if (!fileResult || !fileResult.details) return;
-
-    //     const det = fileResult.details;
-    //     // 🔸 確保三項條件都通過
-    //     if (!(det.is_pe32 && det.is_exe && det.unpack_success)) return;
-
-    //     const id = nextId.current++;
-    //     const pred = randomPred(fileResult.name);
-
-    //     setTrainRows((prev) => [
-    //         {
-    //             id,
-    //             filename: fileResult.name,
-    //             pred,
-    //             trueLabel: "-",
-    //             provision: "",
-    //             details: fileResult.details,
-    //         },
-    //         ...prev,
-    //     ]);
-    // };
+    /**
+     * ✅ 從 fileResult 中提取 predicted label
+     */
     const getPredictedLabel = (res) => {
         const cands = [
           res?.prediction?.final_label,
@@ -98,13 +59,16 @@ export default function Home() {
         ];
         const val = cands.find(v => typeof v === "string" && v.trim());
         return (val || "unknown").toUpperCase();
-      };
+    };
 
+    /**
+     * ✅ 處理檔案完成的 callback (儲存 768 維 embedding)
+     */
     const handleFileDone = (fileResult) => {
         if (!fileResult || !fileResult.details) return;
 
         const det = fileResult.details;
-        const passed = det.is_pe32 && det.is_exe && det.unpack_success ;
+        const passed = det.is_pe32 && det.is_exe && det.unpack_success;
 
         if (!passed) {
             console.log("❌ File did not pass all checks:", det);
@@ -113,7 +77,7 @@ export default function Home() {
 
         const predictedLabel = getPredictedLabel(fileResult);
 
-       // ✅ 提取完整 768 維 embedding
+        // ✅ 提取完整 768 維 embedding
         const embedding = fileResult.embedding || 
                          fileResult.prediction?.embedding?.values || 
                          null;
@@ -140,7 +104,6 @@ export default function Home() {
 
         const id = nextId.current++;
 
-
         setTrainRows((prev) => [
             {
                 id,
@@ -160,11 +123,7 @@ export default function Home() {
         ]);
     };
 
-
-
-
     // 呼叫 useFileProcessor 時傳入 callback
-
     const {
         bulletItems,
         bulletsTitle,
@@ -177,17 +136,8 @@ export default function Home() {
         handleCircleDone,
     } = useFileProcessor({ onFileDone: handleFileDone });
 
-
-
     /** ===== 模型待訓練資料 ===== */
-    // const nextId = useRef(1);
     const [trainRows, setTrainRows] = useState([]);
-    // const randomPred = (filename) => {
-    //     if (!labelChoices?.length) return "unknown";
-    //     if (filename.toLowerCase().includes("738cfa86c6b8263638afc7a51ee41863")) return "WORM.AUTOIT";
-    //     if (filename.toLowerCase().startsWith("dogwaffle")) return "GOODWARE";
-    //     return labelChoices[Math.floor(Math.random() * labelChoices.length)];
-    // };
 
     /** ===== Bulk JSON 匯入 ===== */
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -265,10 +215,6 @@ export default function Home() {
     };
 
     /** ===== 狀態顯示 ===== */
-    //const currentFile = activeQueue[0];
-    //const bulletsTitle = currentFile ? `${currentFile.name}` : "等待處理的檔案…";
-    //const bulletsTitle = currentFile ? `${currentFile.name}` : "等待處理的檔案…";
-
     const remaining = activeQueue.length > 0 ? activeQueue.length : 0;
     const total = activeQueue.length > 0 ? activeQueue.length : 0;
 
@@ -288,8 +234,8 @@ export default function Home() {
                     onDragOver={(e) => e.preventDefault()}
                 >
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-semibold text-slate-800">Upload .exe (single/multiple or whole folder)</h2>
-                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳（僅限 .exe）</div>
+                        <h2 className="text-lg font-semibold text-slate-800">Upload executables (.exe or Unix)</h2>
+                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳（.exe 或 Unix 執行檔）</div>
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -366,11 +312,28 @@ export default function Home() {
                                     <tr key={row.id} className="border-b last:border-b-0">
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
+                                        <td className="py-2 pr-4">
+                                            {row.embedding ? (
+                                                <span className="text-green-600 font-semibold">
+                                                    ✅ {row.embeddingDimension}D
+                                                </span>
+                                            ) : (
+                                                <span className="text-red-500">❌ None</span>
+                                            )}
+                                        </td>
                                         <td className="py-2 pr-4">{row.trueLabel}</td>
                                         <td className="py-2 pr-4">
                                             <button
                                                 className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700"
-                                                onClick={() => navigate("/report", { state: { filename: row.filename, predLabel: row.pred } })}
+                                                onClick={() => navigate("/report", { 
+                                                    state: { 
+                                                        filename: row.filename, 
+                                                        predLabel: row.pred,
+                                                        embedding: row.embedding,
+                                                        embeddingSource: row.embeddingSource,
+                                                        confidence: row.confidence
+                                                    } 
+                                                })}
                                             >
                                                 View
                                             </button>
@@ -378,7 +341,7 @@ export default function Home() {
                                     </tr>
                                 ))}
                                 {!trainRows.length && (
-                                    <tr><td colSpan={4} className="py-4 text-center text-slate-500">目前沒有資料列</td></tr>
+                                    <tr><td colSpan={5} className="py-4 text-center text-slate-500">目前沒有資料列</td></tr>
                                 )}
                             </tbody>
                         </table>
