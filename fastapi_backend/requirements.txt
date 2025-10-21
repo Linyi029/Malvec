@@ -1,0 +1,18 @@
+# --- FastAPI 服務 ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# 上傳檔案（multipart/form-data）必備
+python-multipart==0.0.12
+
+# 提供 /results 靜態檔案
+aiofiles==24.1.0
+
+# 你在 main.py 可能會用到的 HTTP 呼叫（可保留）
+requests==2.32.3
+
+# 若你用 .env
+python-dotenv==1.0.1
+
+# HTTP 客戶端 - 用於呼叫 HF Space
+httpx

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import TopBar from "./components/TopBar";
 import AnimatedBullets from "./components/AnimatedBullets";
-import CircleProgress from "./components/CircleProgress";
 import BulkLabelModal from "./components/BulkLabelModal";
+import CircleProgress from "./components/CircleProgress";
+import TopBar from "./components/TopBar";
 import TrainingModal from "./components/TrainingModal";
 import useFileProcessor from "./hooks/useFileProcessor";
 
@@ -45,20 +45,88 @@ export default function Home() {
     /** ===== 上傳與動畫流程 Hook ===== */
     const nextId = useRef(1);
 
-    const handleFileDone = (file) => {
-        if (!file) return;
+    /**
+     * ✅ 從 fileResult 中提取 predicted label
+     */
+    const getPredictedLabel = (res) => {
+        const cands = [
+          res?.prediction?.final_label,
+          res?.prediction?.finalLabel,
+          res?.final_label,
+          res?.finalLabel,
+          res?.pred_label,
+          res?.predLabel,
+        ];
+        const val = cands.find(v => typeof v === "string" && v.trim());
+        return (val || "unknown").toUpperCase();
+    };
+
+    /**
+     * ✅ 處理檔案完成的 callback (儲存 768 維 embedding)
+     */
+    const handleFileDone = (fileResult) => {
+        if (!fileResult || !fileResult.details) return;
+
+        const det = fileResult.details;
+        const passed = det.is_pe32 && det.is_exe && det.unpack_success;
+
+        if (!passed) {
+            console.log("❌ File did not pass all checks:", det);
+            return;
+        }
+
+        const predictedLabel = getPredictedLabel(fileResult);
+
+        // ✅ 提取完整 768 維 embedding
+        const embedding = fileResult.embedding || 
+                         fileResult.prediction?.embedding?.values || 
+                         null;
+        
+        const embeddingInfo = fileResult.embeddingInfo || {
+            dimension: embedding?.length || 0,
+            source_file: fileResult.prediction?.embedding?.source_file || null,
+            attention_score: fileResult.prediction?.embedding?.attention_score || 0
+        };
+
+        // ✅ 驗證 embedding
+        if (embedding && Array.isArray(embedding)) {
+            console.log("✅ Added to training set:", fileResult.name);
+            console.log("🤗 Prediction (label):", predictedLabel);
+            console.log("📊 Embedding info:", {
+                dimension: embedding.length,
+                source_file: embeddingInfo.source_file,
+                attention_score: embeddingInfo.attention_score,
+                first_5_values: embedding.slice(0, 5).map(v => v.toFixed(4))
+            });
+        } else {
+            console.warn("⚠️ No valid embedding found for:", fileResult.name);
+        }
+
         const id = nextId.current++;
-        const pred = randomPred(file.name);
+
         setTrainRows((prev) => [
-            { id, filename: file.name, pred, trueLabel: "-", provision: "" },
+            {
+                id,
+                filename: fileResult.name,
+                pred: predictedLabel,
+                trueLabel: "-",
+                provision: "",
+                details: fileResult.details,
+                // ✅ 新增：儲存完整 768 維 embedding 和相關資訊
+                embedding: embedding,  // Array[768] of floats
+                embeddingDimension: embedding?.length || 0,
+                embeddingSource: embeddingInfo.source_file,
+                attentionScore: embeddingInfo.attention_score,
+                confidence: fileResult.prediction?.confidence || 0
+            },
             ...prev,
         ]);
     };
 
     // 呼叫 useFileProcessor 時傳入 callback
-
     const {
         bulletItems,
+        bulletsTitle,
         bulletPlayKey,
         activeQueue,
         processing,
@@ -68,17 +136,8 @@ export default function Home() {
         handleCircleDone,
     } = useFileProcessor({ onFileDone: handleFileDone });
 
-
-
     /** ===== 模型待訓練資料 ===== */
-    // const nextId = useRef(1);
     const [trainRows, setTrainRows] = useState([]);
-    const randomPred = (filename) => {
-        if (!labelChoices?.length) return "unknown";
-        if (filename.toLowerCase().includes("738cfa86c6b8263638afc7a51ee41863")) return "WORM.AUTOIT";
-        if (filename.toLowerCase().startsWith("dogwaffle")) return "GOODWARE";
-        return labelChoices[Math.floor(Math.random() * labelChoices.length)];
-    };
 
     /** ===== Bulk JSON 匯入 ===== */
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -137,21 +196,25 @@ export default function Home() {
         if (!selectedIds.size) { setTrainOpen(false); return; }
         setTraining(true);
         setTrainCircleKey(k => k + 1);
+        
+        // ✅ 可以在這裡使用 trainRows 中的 embedding 進行訓練
+        const selectedData = trainRows.filter(row => selectedIds.has(row.id));
+        console.log("🚀 Starting training with data:", {
+            total: selectedData.length,
+            with_embedding: selectedData.filter(r => r.embedding).length,
+            sample_embedding_dim: selectedData[0]?.embeddingDimension
+        });
+        
         setTimeout(() => {
             setTraining(false);
             setTrainOpen(false);
             setTrainRows([]);
-            // setActiveQueue([]);
-            // setPendingQueue([]);
-            // setProcessing(false);
             setSelectedIds(new Set());
             setSelectAll(false);
         }, 10000);
     };
 
     /** ===== 狀態顯示 ===== */
-    const currentFile = activeQueue[0];
-    const bulletsTitle = currentFile ? `${currentFile.name} has…` : "等待處理的檔案…";
     const remaining = activeQueue.length > 0 ? activeQueue.length : 0;
     const total = activeQueue.length > 0 ? activeQueue.length : 0;
 
@@ -171,8 +234,8 @@ export default function Home() {
                     onDragOver={(e) => e.preventDefault()}
                 >
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-semibold text-slate-800">Upload .exe (single/multiple or whole folder)</h2>
-                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳（僅限 .exe）</div>
+                        <h2 className="text-lg font-semibold text-slate-800">Upload executables (.exe or Unix)</h2>
+                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳（.exe 或 Unix 執行檔）</div>
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -181,7 +244,7 @@ export default function Home() {
                             Select folder
                         </label>
 
-                        <input type="file" accept=".exe" multiple id="filesInput" className="hidden" onChange={onInputChange} />
+                        <input type="file" multiple id="filesInput" className="hidden" onChange={onInputChange} />
                         <label htmlFor="filesInput" className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900 cursor-pointer">
                             Select executables
                         </label>
@@ -219,7 +282,7 @@ export default function Home() {
                             );
                         })}
                     </div>
-                    <div className="mt-3 text-xs text-slate-500">{processing ? currentFile?.name : ""}</div>
+                    <div className="mt-3 text-xs text-slate-500">{processing ? bulletsTitle : ""} </div>
                 </section>
 
                 {/* 模型待訓練表格 */}
@@ -249,11 +312,28 @@ export default function Home() {
                                     <tr key={row.id} className="border-b last:border-b-0">
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
+                                        <td className="py-2 pr-4">
+                                            {row.embedding ? (
+                                                <span className="text-green-600 font-semibold">
+                                                    ✅ {row.embeddingDimension}D
+                                                </span>
+                                            ) : (
+                                                <span className="text-red-500">❌ None</span>
+                                            )}
+                                        </td>
                                         <td className="py-2 pr-4">{row.trueLabel}</td>
                                         <td className="py-2 pr-4">
                                             <button
                                                 className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700"
-                                                onClick={() => navigate("/report", { state: { filename: row.filename, predLabel: row.pred } })}
+                                                onClick={() => navigate("/report", { 
+                                                    state: { 
+                                                        filename: row.filename, 
+                                                        predLabel: row.pred,
+                                                        embedding: row.embedding,
+                                                        embeddingSource: row.embeddingSource,
+                                                        confidence: row.confidence
+                                                    } 
+                                                })}
                                             >
                                                 View
                                             </button>
@@ -261,7 +341,7 @@ export default function Home() {
                                     </tr>
                                 ))}
                                 {!trainRows.length && (
-                                    <tr><td colSpan={4} className="py-4 text-center text-slate-500">目前沒有資料列</td></tr>
+                                    <tr><td colSpan={5} className="py-4 text-center text-slate-500">目前沒有資料列</td></tr>
                                 )}
                             </tbody>
                         </table>

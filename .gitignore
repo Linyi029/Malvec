@@ -1,0 +1,6 @@
+uploads/
+results/
+
+hf_space/
+__pycache__/
+*.pyc

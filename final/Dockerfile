@@ -15,6 +15,7 @@ RUN pip install pefile capstone requests
 # 複製分析腳本
 COPY disasm.py /disasm.py
 COPY unpack.py /unpack.py
+COPY segment_disasm.py /segment_disasm.py
 
 
 CMD ["bash"]
