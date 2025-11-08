@@ -343,12 +343,6 @@ export default function Home() {
                     </div>
 
                     <div className="mt-4">
-                        <button
-                            className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-                            onClick={() => setTrainOpen(true)}
-                        >
-                            start training model
-                        </button>
                     </div>
                 </section>
             </main>
