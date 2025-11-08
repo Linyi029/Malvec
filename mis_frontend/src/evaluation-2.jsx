@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
+import { useLocation, useNavigate } from "react-router-dom";
 
 /** GitHub raw JSON URLs (fill these) */
 const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";  // e.g. points with x, y, "true label" | "pred label", "time period"
@@ -83,6 +84,10 @@ function RangeBar({ min, max, valueMin, valueMax, onChange }) {
 }
 
 export default function EvaluationPage() {
+  const location = useLocation();  
+  const navigate = useNavigate();
+  const state = location?.state || {};  
+
   useEffect(() => { document.title = "Periodic Evaluation"; }, []);
 
   const [labelList, setLabelList] = useState(null);
@@ -99,8 +104,49 @@ export default function EvaluationPage() {
   // 每個元素是一張 SOM 的原始 JSON（array of cells）
   const [somErr, setSomErr] = useState("");
   const [somIndex, setSomIndex] = useState(0);              // 當前顯示哪一張
+  const [plotRevision, setPlotRevision] = useState(0);
   const somGraphRefs = useRef([]);                          // 每張 SOM 的 Plotly graph div 參照
   somGraphRefs.current = [];
+
+  // 儲存新檔案在 SOM 上的位置
+  const [newSampleSomPosition, setNewSampleSomPosition] = useState(null);
+  
+  const LS_KEY = "somAnalysis.latest";
+  const urlSom = (() => {
+    try { return JSON.parse(new URLSearchParams(location.search).get("som") || "null"); } catch { return null; }
+  })();
+  const somAnalysisFromState = state.somAnalysis || urlSom || (() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; }
+  })();
+  useEffect(() => {
+    if (somAnalysisFromState) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(somAnalysisFromState)); } catch {}
+    }
+  }, [somAnalysisFromState]);
+
+  useEffect(() => {
+    // 當 somIndex 改變 (切換分頁) 時
+    // 增加 revision 數值，這會強制 Plotly.js 重新繪製
+    setPlotRevision(r => r + 1); 
+  }, [somIndex]); // 依賴 somIndex
+
+  const navigateWithBackendResult = (result, fallbackFileName = "unknown.exe") => {
+    const somResult = result?.som_analysis || result?.somAnalysis || null;
+    const predictedLabel = result?.pred_label || result?.predLabel || "UNKNOWN";
+    const filename = result?.filename || fallbackFileName;
+
+    // 備援存一份，避免刷新遺失
+    try { localStorage.setItem("somAnalysis.latest", JSON.stringify(somResult)); } catch {}
+
+    // 導到 /report，並把分析結果放進 state（report 頁會用到）
+    navigate("/report", {
+      state: {
+        somAnalysis: somResult,
+        filename,
+        predLabel: predictedLabel,
+      },
+    });
+  };
 
   // 將 ref 存入陣列的小工具
   const registerSomRef = (idx) => (fig, gd) => { somGraphRefs.current[idx] = gd; };
@@ -149,7 +195,32 @@ export default function EvaluationPage() {
     })();
   }, []);
 
-  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, extraPoints = []) {
+  useEffect(() => {
+    if (!somAnalysisFromState) {
+      console.log("⚠️ No SOM analysis data from backend");
+      setNewSampleSomPosition(null);
+      return;
+    }
+  
+    console.log("🔍 SOM Analysis received:", somAnalysisFromState);
+  
+    // ✅ 提取位置
+    const position = somAnalysisFromState.winner_position || somAnalysisFromState.position;
+    if (position && typeof position.row === 'number' && typeof position.col === 'number') {
+      // 只保存位置
+      setNewSampleSomPosition({
+        row: position.row,
+        col: position.col
+      });
+      
+      console.log(`✅ New sample SOM position: (row=${position.row}, col=${position.col})`);
+    } else {
+      console.warn("⚠️ Invalid SOM position data:", position);
+      setNewSampleSomPosition(null);
+    }
+  }, [somAnalysisFromState]);
+
+  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, newSamplePos = null) {
     const {
       radius = 0.35,      // 每格圓半徑（座標單位）
       k = 3,              // 每格最多幾片（其餘合併到 OTHER）
@@ -248,6 +319,43 @@ export default function EvaluationPage() {
       }
     }
 
+    // ✅ 添加新樣本的黑點標記
+    if (newSamplePos && typeof newSamplePos.row === 'number' && typeof newSamplePos.col === 'number') {
+      const markerX = newSamplePos.col;
+      const markerY = newSamplePos.row;
+      const markerRadius = 0.15;
+
+      console.log(`🎯 Adding marker at row=${markerY}, col=${markerX}`);
+
+      // 白色光暈
+      shapes.push({
+        type: "circle",
+        xref: "x", yref: "y",
+        x0: markerX - markerRadius * 1.3,
+        x1: markerX + markerRadius * 1.3,
+        y0: markerY - markerRadius * 1.3,
+        y1: markerY + markerRadius * 1.3,
+        fillcolor: "white",
+        line: { width: 0 },
+        layer: "above",
+        opacity: 0.9
+      });
+
+      // 黑色標記點
+      shapes.push({
+        type: "circle",
+        xref: "x", yref: "y",
+        x0: markerX - markerRadius,
+        x1: markerX + markerRadius,
+        y0: markerY - markerRadius,
+        y1: markerY + markerRadius,
+        fillcolor: "black",
+        line: { width: 2, color: "white" },
+        layer: "above",
+        opacity: 1
+      });
+    }
+
     // ★ 新增：蒐集本圖出現的 labels，建立 legend 專用 traces
     const labelsInThisSom = collectLabelsFromSom(somArray, 30);
     const legendTraces = makeLegendTraces(
@@ -274,21 +382,9 @@ export default function EvaluationPage() {
       shapes,
     };
 
-    // 尾端回傳前
-    const testPointTrace = extraPoints?.length ? {
-      type: "scatter",
-      mode: "markers",
-      x: extraPoints.map(p => p.x),
-      y: extraPoints.map(p => p.y),
-      marker: { size: 10, color: "black" },
-      name: "test point",
-      showlegend: false,
-      hoverinfo: "skip",
-    } : null;
-
+    // ✅ 正確的程式碼
     return {
-      traces: testPointTrace ? [baseTrace, ...legendTraces, testPointTrace]
-        : [baseTrace, ...legendTraces],
+      traces: [baseTrace, ...legendTraces],
       layout
     };
   }
@@ -662,7 +758,7 @@ export default function EvaluationPage() {
                     somArray,
                     labelColors,
                     { radius: 0.35, k: 3, showOther: true },
-                    extraPt // ← 新增的參數：額外點
+                    newSampleSomPosition // ← 新增的參數：額外點extraPt
                   );
 
                   const isActive = i === somIndex;
@@ -670,19 +766,19 @@ export default function EvaluationPage() {
                     <div
                       key={i}
                       style={isActive
-                        ? { width: "100%", height: 500 }
-                        : { position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0 }}
+                        ? { width: "100%", height: 500, maxWidth: 800, margin: 'auto' }
+                        : { display: 'none' }}
                     >
-                      <div style={{ width: '100%', maxWidth: 800, aspectRatio: '1 / 1' }}>
                         <Plot
                           data={traces}
                           layout={layout}
-                          style={isActive ? { width: "100%", height: 500 } : { width: 1, height: 1 }}
+                          style={{ width: "100%", height: "100%" }} // 高度 100%
                           config={{ responsive: true, displayModeBar: true }}
                           onInitialized={registerSomRef(i)}
                           onUpdate={registerSomRef(i)}
+                          revision={plotRevision}
                         />
-                      </div>
+                      
                     </div>
                   );
                 })}

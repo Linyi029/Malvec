@@ -57,6 +57,25 @@ export default function ReportPage() {
   // ✅ 新增：前端計算 t-SNE 位置的 state
   const [newSamplePoint, setNewSamplePoint] = useState(null);
 
+  // ✅ 新增：接收 SOM 分析資料
+  //const somAnalysisFromState = state.somAnalysis || null;
+  
+  // ✅ 新增：儲存新檔案在 SOM 上的位置
+  const [newSampleSomPosition, setNewSampleSomPosition] = useState(null);
+
+  const LS_KEY = "somAnalysis.latest";
+  const urlSom = (() => {
+    try { return JSON.parse(new URLSearchParams(location.search).get("som") || "null"); } catch { return null; }
+  })();
+  const somAnalysisFromState = state.somAnalysis || urlSom || (() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; }
+  })();
+  useEffect(() => {
+    if (somAnalysisFromState) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(somAnalysisFromState)); } catch {}
+    }
+  }, [somAnalysisFromState]);
+
   const incomingFilename = state.filename || searchParams.get("file") || "unknown.exe";
   const incomingPredLabelRaw = state.predLabel || state.predictedLabel || searchParams.get("label") || null;
   const incomingPredLabel = incomingPredLabelRaw ? String(incomingPredLabelRaw).trim() : null;
@@ -122,7 +141,7 @@ export default function ReportPage() {
       setNewSamplePoint(null);
       return;
     }
-    
+
     // 計算該 label 的質心（中心點）
     const centerX = labelPoints.reduce((sum, p) => sum + p.x, 0) / labelPoints.length;
     const centerY = labelPoints.reduce((sum, p) => sum + p.y, 0) / labelPoints.length;
@@ -147,6 +166,32 @@ export default function ReportPage() {
       basedOn: `${labelPoints.length} existing points`
     });
   }, [tsneRows, incomingPredLabel]);
+
+   //  新增：解析 SOM 位置資料
+  useEffect(() => {
+    if (!somAnalysisFromState) {
+      console.log("⚠️ No SOM analysis data from backend");
+      setNewSampleSomPosition(null);
+      return;
+    }
+  
+    console.log("🔍 SOM Analysis received:", somAnalysisFromState);
+  
+    // ✅ 提取位置
+    const position = somAnalysisFromState.winner_position || somAnalysisFromState.position;
+    if (position && typeof position.row === 'number' && typeof position.col === 'number') {
+      // ✅ 只保存位置
+      setNewSampleSomPosition({
+        row: position.row,
+        col: position.col
+      });
+      
+      console.log(`✅ New sample SOM position: (row=${position.row}, col=${position.col})`);
+    } else {
+      console.warn("⚠️ Invalid SOM position data:", position);
+      setNewSampleSomPosition(null);
+    }
+  }, [somAnalysisFromState]);
 
   const allLabelNames = useMemo(() => {
     const arr = Array.isArray(labelList) ? labelList.slice() : [];
@@ -180,13 +225,38 @@ export default function ReportPage() {
     });
   }, [tsneRows, allLabelNames, labelColors]);
 
-  const summaryJson = useMemo(() => ({
-    filename: incomingFilename,
-    top1_family: incomingPredLabel || familyScores.reduce((a, b) => a.score >= b.score ? a : b).label,
-    similar_file: SIMILAR_NAME,
-    apt30: { probability: apt30Prob, is_APT30: apt30Prob >= 0.5 },
-    dropper: { probability: dropperProb, is_dropper: dropperProb >= 0.5 },
-  }), [incomingFilename, incomingPredLabel, familyScores, SIMILAR_NAME, apt30Prob, dropperProb]);
+  const summaryJson = useMemo(() => {
+    // 容錯多種可能的 key 名稱
+    const fp = somAnalysisFromState?.feature_probabilities
+      || somAnalysisFromState?.features_probability
+      || somAnalysisFromState?.features
+      || {};
+  
+    const somPos = somAnalysisFromState?.winner_position
+      || somAnalysisFromState?.position
+      || null;
+  
+    return {
+      filename: incomingFilename,
+      top1_family: incomingPredLabel || familyScores.reduce((a, b) => (a.score >= b.score ? a : b)).label,
+      similar_file: SIMILAR_NAME,
+  
+      // SOM 分析概率
+      apt30: {
+        probability: Number(fp.APT30 || 0),
+        is_APT30: Number(fp.APT30 || 0) >= 0.2,
+      },
+      dropper: {
+        probability: Number(fp.dropper || 0),
+        is_dropper: Number(fp.dropper || 0) >= 0.2,
+      },
+  
+      // SOM 位置
+      som_position: somPos && typeof somPos.row === 'number' && typeof somPos.col === 'number'
+        ? { row: somPos.row, col: somPos.col }
+        : null,
+    };
+  }, [incomingFilename, incomingPredLabel, familyScores, SIMILAR_NAME, somAnalysisFromState]);
 
   const SectionCard = ({ title, subtitle, children }) => (
     <section className="mb-6 border border-slate-200 rounded-2xl bg-white shadow-sm">
@@ -341,7 +411,7 @@ export default function ReportPage() {
     })();
   }, []);
 
-  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}) {
+  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, newSamplePos = null) {
     const {
       radius = 0.35,
       k = 3,
@@ -431,6 +501,43 @@ export default function ReportPage() {
           opacity: 0.98,
         });
       }
+    }
+
+    // ✅ 添加新樣本的黑點標記
+    if (newSamplePos && typeof newSamplePos.row === 'number' && typeof newSamplePos.col === 'number') {
+      const markerX = newSamplePos.col;
+      const markerY = newSamplePos.row;
+      const markerRadius = 0.15;
+
+      console.log(`🎯 Adding marker at row=${markerY}, col=${markerX}`);
+
+      // 白色光暈
+      shapes.push({
+        type: "circle",
+        xref: "x", yref: "y",
+        x0: markerX - markerRadius * 1.3,
+        x1: markerX + markerRadius * 1.3,
+        y0: markerY - markerRadius * 1.3,
+        y1: markerY + markerRadius * 1.3,
+        fillcolor: "white",
+        line: { width: 0 },
+        layer: "above",
+        opacity: 0.9
+      });
+
+      // 黑色標記點
+      shapes.push({
+        type: "circle",
+        xref: "x", yref: "y",
+        x0: markerX - markerRadius,
+        x1: markerX + markerRadius,
+        y0: markerY - markerRadius,
+        y1: markerY + markerRadius,
+        fillcolor: "black",
+        line: { width: 2, color: "white" },
+        layer: "above",
+        opacity: 1
+      });
     }
 
     const labelsInThisSom = collectLabelsFromSom(somArray, 30);
@@ -755,9 +862,13 @@ export default function ReportPage() {
           title={somTitles[somIndex] || "Self-Organizing Map"}
           subtitle={
             somIndex === 0
-              ? "This file is not attributed to APT30."
+              ? (summaryJson.apt30.is_APT30 // 檢查 JSON 結果
+                  ? "This file is attributed to APT30."
+                  : "This file is not attributed to APT30.")
               : somIndex === 1
-              ? "This file is not classified as a dropper."
+              ? (summaryJson.dropper.is_dropper // 檢查 JSON 結果
+                  ? "This file is classified as a dropper."
+                  : "This file is not classified as a dropper.")
               : ""
           }
         >
@@ -798,7 +909,8 @@ export default function ReportPage() {
                   const { traces, layout } = buildSomPlotPieMulti(
                     somArray,
                     labelColors,
-                    { radius: 0.35, k: 3, showOther: true }
+                    { radius: 0.35, k: 3, showOther: true },
+                    newSampleSomPosition
                   );
 
                   const isActive = i === somIndex;
@@ -823,6 +935,20 @@ export default function ReportPage() {
                   );
                 })}
               </div>
+              
+              {/* ✅ Step 5: 在這裡添加位置資訊！ */}
+              {newSampleSomPosition && (
+                <div className="mt-4 p-3 bg-slate-50 rounded-lg text-sm">
+                  <div className="font-semibold text-slate-700 mb-2">📍 Sample Position on SOM:</div>
+                  <div className="grid grid-cols-2 gap-2 text-slate-600">
+                    <div>Row: {newSampleSomPosition.row}</div>
+                    <div>Col: {newSampleSomPosition.col}</div>
+                    <div className="col-span-2 text-xs text-slate-500">
+                      The black dot ⚫ marks your file's position on the SOM map
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </SectionCard>

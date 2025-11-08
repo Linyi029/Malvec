@@ -7,6 +7,7 @@ import TopBar from "./components/TopBar";
 import TrainingModal from "./components/TrainingModal";
 import useFileProcessor from "./hooks/useFileProcessor";
 
+
 /** ==========================
  *  設定標籤來源與顏色
  *  ========================== */
@@ -117,11 +118,13 @@ export default function Home() {
                 embeddingDimension: embedding?.length || 0,
                 embeddingSource: embeddingInfo.source_file,
                 attentionScore: embeddingInfo.attention_score,
-                confidence: fileResult.prediction?.confidence || 0
+                confidence: fileResult.prediction?.confidence || 0,
+                somAnalysis: fileResult.somAnalysis,
             },
             ...prev,
         ]);
     };
+
 
     // 呼叫 useFileProcessor 時傳入 callback
     const {
@@ -258,7 +261,7 @@ export default function Home() {
                 </section>
 
                 {/* Bullet 動畫 */}
-                <div className="xl:col-span-1">
+                <div className="xl:col-span-1 min-w-0">
                     <AnimatedBullets
                         items={bulletItems}
                         playKey={bulletPlayKey}
@@ -276,7 +279,7 @@ export default function Home() {
                                     : (i + 1 < circleStep ? "done" : (i + 1 === circleStep ? "active" : "idle"));
                             return (
                                 <div key={label} className="flex flex-col items-center gap-2">
-                                    <CircleProgress durationSec={5} status={status} onDone={() => handleCircleDone(i)} />
+                                    <CircleProgress durationSec={0.5} status={status} />
                                     <div className="text-slate-700 text-sm">{label}</div>
                                 </div>
                             );
@@ -312,15 +315,6 @@ export default function Home() {
                                     <tr key={row.id} className="border-b last:border-b-0">
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
-                                        <td className="py-2 pr-4">
-                                            {row.embedding ? (
-                                                <span className="text-green-600 font-semibold">
-                                                    ✅ {row.embeddingDimension}D
-                                                </span>
-                                            ) : (
-                                                <span className="text-red-500">❌ None</span>
-                                            )}
-                                        </td>
                                         <td className="py-2 pr-4">{row.trueLabel}</td>
                                         <td className="py-2 pr-4">
                                             <button
@@ -331,7 +325,8 @@ export default function Home() {
                                                         predLabel: row.pred,
                                                         embedding: row.embedding,
                                                         embeddingSource: row.embeddingSource,
-                                                        confidence: row.confidence
+                                                        confidence: row.confidence,
+                                                        somAnalysis: row.somAnalysis
                                                     } 
                                                 })}
                                             >

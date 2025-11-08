@@ -1,5 +1,8 @@
 import { useRef, useState } from "react";
 
+// ✅ 步驟 1: 延遲 (wait) 輔助函數 (不變)
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function useFileProcessor(props = {}) {
   const { onFileDone } = props;
 
@@ -20,14 +23,14 @@ export default function useFileProcessor(props = {}) {
   const API_URL = "http://127.0.0.1:8000/api/analyze";
   const currentFileRef = useRef(null);
 
+  // ✅ 步驟 2: 重寫 startNextFile 以符合新的動畫邏輯
   async function startNextFile(file) {
     if (!file) return;
 
+    // --- 1. 初始化狀態 ---
     currentFileRef.current = file.name;
     setBulletsTitle(file.name);
     setProcessing(true);
-    setCircleStep(0);
-    setCircleDone([false, false, false, false]);
     setBulletPlayKey((k) => k + 1);
     setBulletItems([
       "Analyzing PE header...",
@@ -36,12 +39,27 @@ export default function useFileProcessor(props = {}) {
       "Waiting for prediction..."
     ]);
 
+    // ✅ 重設所有圈圈
+    setCircleDone([false, false, false, false]);
+    
     try {
+      // --- 2. 播放第 1 圈 (Disassembling) ---
+      // ✅ 啟動第 1 個圈圈
+      setCircleStep(1); 
+      // ✅ 等待 5 秒鐘 (模擬 Disassembling)
+      await wait(5000); 
+
+      // --- 3. 播放第 2 圈 (Malware Family Identification) 並等待後端 ---
+      // ✅ 啟動第 2 個圈圈 (第 1 圈會自動填滿)
+      setCircleStep(2); 
+
+      // ✅ (在第 2 圈轉動時) 準備並發送 API 請求
       const formData = new FormData();
       formData.append("file", file, file.name);
       
       console.log("📤 Uploading to:", API_URL);
 
+      // ✅ (在第 2 圈轉動時) 等待後端 API 回應
       const response = await fetch(API_URL, { 
         method: "POST", 
         body: formData,
@@ -58,94 +76,123 @@ export default function useFileProcessor(props = {}) {
       const result = await response.json();
       console.log("📊 Analysis result:", result);
 
+      // --- 4. 收到結果，快速播放 3, 4 圈 ---
+      
+      // ✅ 填滿第 2 圈
+      await wait(500); 
+      // ✅ 啟動並填滿第 3 圈 (Attention Heatmap)
+      setCircleStep(3); 
+      await wait(500); 
+      // ✅ 啟動並填滿第 4 圈 (SOM Analyzing)
+      setCircleStep(4); 
+      await wait(500); 
+      // ✅ 全部完成 (狀態 > 4 即為 done)
+      setCircleStep(5); 
+      setCircleDone([true, true, true, true]);
+      await wait(300); // 結束後短暫停留
+
+      // --- 5. 準備要顯示的資料 (與之前相同) ---
       const det = result.details || {};
       const pred = result.prediction || {};
-      
-      // 🔍 除錯: 顯示詳細結果
+      const som = result.som_analysis || null;
+
+      let somInfo = null;
+      if (som) {
+        const pos = som.winner_position || som.position || null;
+        const feats =
+          som.features_probability ||
+          som.features_probabilities ||
+          som.features ||
+          som.probabilities || {};
+
+        somInfo = {
+          winner_position: pos,
+          position: pos,
+          features_probability: feats,
+          features: som.features || {},
+          som_visualizations: som.som_visualizations || som.visualizations || null,
+        };
+
+        try {
+          localStorage.setItem("somAnalysis.latest", JSON.stringify(somInfo));
+        } catch (e) {
+          console.error("Failed to save SOM analysis to localStorage", e);
+        }
+      }
+
       console.log("🔎 Details:", {
         is_pe32: det.is_pe32,
         is_exe: det.is_exe,
         unpack_success: det.unpack_success,
       });
-      
       console.log("🤗 Prediction:", {
         final_label: pred.final_label,
         confidence: pred.confidence,
-        embedding_dimension: pred.embedding?.dimension,
-        embedding_values_length: pred.embedding?.values?.length,
-        embedding_source: pred.embedding?.source_file,
-        attention_score: pred.embedding?.attention_score
       });
 
       const is_pe32 = det.is_pe32 ? "✅ Yes" : "❌ No";
       const is_exe = det.is_exe ? "✅ Yes" : "❌ No";
       const is_upx = det.unpack_success ? "✅ Yes" : "❌ No";
 
-      // 📸 更新子彈點 (註解掉預測結果顯示)
-      // const predictionText = pred.final_label 
-      //   ? `Predicted: ${pred.final_label} (${(pred.confidence * 100).toFixed(1)}%)`
-      //   : "Prediction unavailable";
+      // --- 6. 按順序更新 UI (與之前相同) ---
 
+      // (A) 更新 AnimatedBullets 的內容
       setBulletItems([
         `PE 32-file: ${is_pe32}`,
         `is .exe: ${is_exe}`,
         `is UPX compressed: ${is_upx}`,
-        ""  // ✅ 改成空字串，不顯示預測結果
       ]);
-
       setBulletsTitle(`${file.name} — 分析完成`);
 
-      // ✅ 通過條件才送進待訓練資料,並傳遞完整的 prediction (包含 embedding)
+      // (B) 等待 AnimatedBullets 動畫 (例如 1.5 秒)
+      await wait(1500); 
+
+      // (C) 最後才呼叫 onFileDone，將資料加入下方的表格
       if (det.is_pe32 && det.is_exe && det.unpack_success) {
         console.log("✅ File passed all checks, sending to Home");
         
-        // ✅ 提取完整 768 維 embedding
         const embedding = pred.embedding?.values || null;
-        
-        // ✅ 新增：提取 t-SNE 投影座標
         const tsneProjection = result.tsne_projection || null;
         
         if (embedding && Array.isArray(embedding)) {
           console.log(`✅ Embedding extracted: ${embedding.length} dimensions`);
-          console.log(`   First 5 values: [${embedding.slice(0, 5).map(v => v.toFixed(4)).join(', ')}...]`);
         } else {
           console.warn("⚠️ No valid embedding found in prediction");
-        }
-        
-        if (tsneProjection) {
-          console.log(`✅ t-SNE projection: (${tsneProjection.x.toFixed(3)}, ${tsneProjection.y.toFixed(3)})`);
-          console.log(`   Confidence: ${tsneProjection.confidence.toFixed(3)}`);
-        } else {
-          console.warn("⚠️ No t-SNE projection found");
         }
         
         onFileDone?.({
           name: file.name,
           details: det,
           status: result.status,
-          prediction: pred,  // ✅ 傳遞完整的 prediction 物件
-          embedding: embedding,  // ✅ 直接傳遞 768 維 embedding array
-          tsneProjection: tsneProjection,  // ✅ 新增：t-SNE 投影座標
+          prediction: pred,
+          embedding: embedding,
+          tsneProjection: tsneProjection,
           embeddingInfo: {
             dimension: pred.embedding?.dimension || 0,
             source_file: pred.embedding?.source_file || null,
             attention_score: pred.embedding?.attention_score || 0
-          }
+          },
+          somAnalysis: somInfo,
+          somAnalysisRaw: som
         });
       } else {
         console.log("⚠️ File failed checks");
       }
+
     } catch (err) {
+      // --- 錯誤處理 (與之前相同) ---
       console.error("❌ Processing error:", err);
       setBulletItems([
         "分析失敗",
         err.message,
         "請檢查檔案或伺服器",
-        ""
       ]);
       setBulletsTitle(`${file.name} (Error)`);
+      setCircleStep(0); 
+      setCircleDone([false, false, false, false]);
+
     } finally {
-      // 延遲結束 processing,讓 UI 穩定顯示結果
+      // --- 7. 準備處理下一個檔案 (與之前相同) ---
       setTimeout(() => {
         setProcessing(false);
 
@@ -168,7 +215,6 @@ export default function useFileProcessor(props = {}) {
   }
 
   function handleFiles(files) {
-    // ✅ 接受 .exe 檔案或沒有副檔名的檔案 (Unix executables)
     const valid = Array.from(files).filter(f => {
       const name = f.name.toLowerCase();
       const hasExeExtension = name.endsWith('.exe');
