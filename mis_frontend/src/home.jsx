@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedBullets from "./components/AnimatedBullets";
 import BulkLabelModal from "./components/BulkLabelModal";
@@ -6,7 +6,7 @@ import CircleProgress from "./components/CircleProgress";
 import TopBar from "./components/TopBar";
 import TrainingModal from "./components/TrainingModal";
 import useFileProcessor from "./hooks/useFileProcessor";
-
+const TRAIN_ROWS_KEY = 'malvec.trainRowsData';
 
 /** ==========================
  *  設定標籤來源與顏色
@@ -65,7 +65,7 @@ export default function Home() {
     /**
      * ✅ 處理檔案完成的 callback (儲存 768 維 embedding)
      */
-    const handleFileDone = (fileResult) => {
+    const handleFileDone = useCallback((fileResult) => {
         if (!fileResult || !fileResult.details) return;
 
         const det = fileResult.details;
@@ -123,7 +123,7 @@ export default function Home() {
             },
             ...prev,
         ]);
-    };
+    },[]);
 
 
     // 呼叫 useFileProcessor 時傳入 callback
@@ -139,8 +139,36 @@ export default function Home() {
         handleCircleDone,
     } = useFileProcessor({ onFileDone: handleFileDone });
 
-    /** ===== 模型待訓練資料 ===== */
-    const [trainRows, setTrainRows] = useState([]);
+     /** ===== 模型待訓練資料 ===== */
+    const [trainRows, setTrainRows] = useState(() => { // ✅ 修改：使用延遲初始化
+        try {
+            const storedData = sessionStorage.getItem(TRAIN_ROWS_KEY);
+            if (storedData) {
+                const parsedData = JSON.parse(storedData);
+                if (Array.isArray(parsedData) && parsedData.length > 0) {
+                    // 同時恢復 nextId，避免 ID 衝突
+                    // 我們假設 nextId 存在於這個檔案的某處 (如您的第 48 行)
+                    if (nextId && nextId.current) {
+                         nextId.current = Math.max(...parsedData.map(r => r.id)) + 1;
+                    }
+                    return parsedData;
+                }
+            }
+        } catch (e) {
+            console.error("Failed to read trainRows from sessionStorage", e);
+        }
+        return []; // 預設為空陣列
+    });
+
+    // ✅ 新增：當 trainRows 變化時，將其存入 sessionStorage
+    useEffect(() => {
+        try {
+            sessionStorage.setItem(TRAIN_ROWS_KEY, JSON.stringify(trainRows));
+        } catch (e) {
+            console.error("Failed to save trainRows to sessionStorage", e);
+        }
+    }, [trainRows]);
+
 
     /** ===== Bulk JSON 匯入 ===== */
     const [bulkOpen, setBulkOpen] = useState(false);

@@ -79,17 +79,17 @@ export default function useFileProcessor(props = {}) {
       // --- 4. 收到結果，快速播放 3, 4 圈 ---
       
       // ✅ 填滿第 2 圈
-      await wait(500); 
+      await wait(1500); 
       // ✅ 啟動並填滿第 3 圈 (Attention Heatmap)
       setCircleStep(3); 
-      await wait(500); 
+      await wait(1500); 
       // ✅ 啟動並填滿第 4 圈 (SOM Analyzing)
       setCircleStep(4); 
-      await wait(500); 
+      await wait(1500); 
       // ✅ 全部完成 (狀態 > 4 即為 done)
       setCircleStep(5); 
       setCircleDone([true, true, true, true]);
-      await wait(300); // 結束後短暫停留
+      await wait(900); // 結束後短暫停留
 
       // --- 5. 準備要顯示的資料 (與之前相同) ---
       const det = result.details || {};
