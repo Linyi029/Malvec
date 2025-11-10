@@ -26,9 +26,36 @@ os.makedirs(RESULT_DIR, exist_ok=True)
 app.mount("/results", StaticFiles(directory="results"), name="results")
 
 # ===== HF Space 設定 =====
-HF_SPACE_BASE = "https://malvec-codebert-Malvec.hf.space"
+HF_SPACE_BASE = "https://lyi029-test.hf.space"
 HF_TOKEN = os.environ.get("hf_token")
 
+async def call_spaceA_attention(disasm_csv_path: str):
+    """把本機產生的 disasm CSV 丟到 Space A 的 /attention-heatmap"""
+    url = f"{HF_SPACE_BASE}/attention-heatmap"
+    try:
+        if not os.path.exists(disasm_csv_path):
+            print(f"⚠️ disasm CSV not found: {disasm_csv_path}")
+            return None
+
+        print(f"📡 Sending disasm CSV → {url}")
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            with open(disasm_csv_path, "rb") as f:
+                files = {"file": (os.path.basename(disasm_csv_path), f, "text/csv")}
+                resp = await client.post(url, files=files)
+
+        print(f"📥 attention_heatmap status: {resp.status_code}")
+        if resp.status_code == 200:
+            js = resp.json()
+            print(f"✅ Got attention result with {len(js.get('blocks', []))} blocks")
+            return js
+        else:
+            print(f"⚠️ attention_heatmap failed: HTTP {resp.status_code}")
+            print(resp.text[:300])
+            return None
+    except Exception as e:
+        print(f"❌ attention_heatmap error: {e}")
+        return None
+    
 async def trigger_hf_prediction(filename: str):
     """
     觸發 HF Space 預測並取得結果
@@ -89,32 +116,56 @@ async def trigger_hf_prediction(filename: str):
             
             print(f"📥 Response status: {response.status_code}")
             
+            # 顯示原始回應以方便除錯
+            print("RAW response snippet:", response.text[:400])
+            
             if response.status_code != 200:
                 print(f"❌ HF Space error: {response.status_code}")
                 print(f"   Response: {response.text[:500]}")
                 return None
             
-            result = response.json()
+            # 嘗試解析 JSON
+            try:
+                result = response.json()
+            except Exception as e:
+                print(f"❌ Failed to parse JSON: {e}")
+                print("Response (first 400 chars):", response.text[:400])
+                return None
             
             # ✅ 驗證返回的結果包含所需的欄位
             print(f"✅ Prediction received!")
             print(f"   Final label: {result.get('final_label')}")
             print(f"   Confidence: {result.get('confidence', 0):.3f}")
             print(f"   Total segments: {result.get('total_segments', 0)}")
-            print(f"   Embedding dimension: {result.get('embedding', {}).get('dimension', 0)}")
-            print(f"   Embedding source: {result.get('embedding', {}).get('source_file', 'N/A')}")
-            print(f"   Attention score: {result.get('embedding', {}).get('attention_score', 0):.4f}")
             
-            # 🔍 新增：檢查 embedding.values 是否存在
-            if 'embedding' in result and 'values' in result['embedding']:
-                embedding_values = result['embedding']['values']
-                print(f"   ✅ Embedding values found: {len(embedding_values)} dimensions")
-                print(f"   First 5 values: {embedding_values[:5]}")
+            # ---- 安全解析 embedding 欄位 ----
+            embedding_field = result.get("embedding")
+            
+            if isinstance(embedding_field, dict):
+                dim = embedding_field.get("dimension", len(embedding_field.get("values", [])))
+                src = embedding_field.get("source_file", "N/A")
+                att = embedding_field.get("attention_score", 0.0)
+                values = embedding_field.get("values", [])
+            elif isinstance(embedding_field, list):
+                dim = len(embedding_field)
+                src = "unknown"
+                att = 0.0
+                values = embedding_field
             else:
-                print(f"   ⚠️ WARNING: No embedding.values found in response!")
-                print(f"   Response keys: {result.keys()}")
-                if 'embedding' in result:
-                    print(f"   Embedding keys: {result['embedding'].keys()}")
+                dim, src, att, values = 0, "N/A", 0.0, []
+
+            print(f"   Embedding dimension: {dim}")
+            print(f"   Embedding source: {src}")
+            print(f"   Attention score: {att:.4f}")
+
+            if values:
+                print(f"   ✅ Embedding values found: {len(values)} dimensions")
+                print(f"   First 5 values: {values[:5]}")
+            else:
+                print(f"   ⚠️ WARNING: No embedding values found in response!")
+                print(f"   Response keys: {list(result.keys())}")
+                if isinstance(embedding_field, dict):
+                    print(f"   Embedding keys: {list(embedding_field.keys())}")
             
             return result
             
@@ -123,6 +174,8 @@ async def trigger_hf_prediction(filename: str):
         import traceback
         traceback.print_exc()
         return None
+
+
 
 @app.post("/api/analyze")
 async def analyze(file: UploadFile = File(...)):
@@ -263,6 +316,8 @@ async def analyze(file: UploadFile = File(...)):
             print(f"⚠️  Prediction failed or unavailable")
     else:
         print("\n⚠️  Skipping prediction (disasm failed or not UPX packed)")
+        
+
     
     response = {
         "filename": filename,
@@ -271,7 +326,19 @@ async def analyze(file: UploadFile = File(...)):
         "disasm_success": disasm_success,
         "status": "done" if disasm_success else "unpack_failed",
         "prediction": prediction_result,  # 包含 final_label 和 embedding
+        #"attention_heatmap": attention_result,
     }
+    
+    attention_result = None
+    if disasm_success:
+        attention_result = await call_spaceA_attention(disasm_csv)
+        if attention_result:
+         # 🔹直接展開放到最上層
+            response["attention_heatmap"] = attention_result.get("attention_heatmap")
+            response["similar_heatmap_image"] = attention_result.get("similar_heatmap_image")
+            response["most_similar_in_label"] = attention_result.get("most_similar_in_label")
+            response["similarity_score"] = attention_result.get("similarity_score")
+
     
     # 🔍 最終檢查：確認 response 中包含 embedding
     print("\n🔍 Final response check:")
@@ -304,3 +371,4 @@ async def health():
         "status": "ok",
         "hf_space": HF_SPACE_BASE
     }
+
