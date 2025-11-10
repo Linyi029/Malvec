@@ -4,8 +4,9 @@ import AnimatedBullets from "./components/AnimatedBullets";
 import BulkLabelModal from "./components/BulkLabelModal";
 import CircleProgress from "./components/CircleProgress";
 import TopBar from "./components/TopBar";
-import TrainingModal from "./components/TrainingModal";
 import useFileProcessor from "./hooks/useFileProcessor";
+import LabelModal from "./components/LabelModal.jsx";
+
 
 /** ==========================
  *  設定標籤來源與顏色
@@ -42,88 +43,131 @@ export default function Home() {
         })();
     }, []);
 
+    // ===== Space B (Demo) =====
+    const SPACE_B_URL = "https://lyi029-model-update-test.hf.space";
+    const [labelModal, setLabelModal] = useState({
+        open: false,
+        samples: [],
+        labelFile: null,
+    });
+
+
     /** ===== 上傳與動畫流程 Hook ===== */
     const nextId = useRef(1);
 
-    /**
-     * ✅ 從 fileResult 中提取 predicted label
-     */
+    // Space A 的 URL（
+    const SPACE_A_URL = "https://lyi029-test.hf.space";
+    const [modelUpdateStatus, setModelUpdateStatus] = useState("");
+
+    /** ===== 取得模型預測標籤 ===== */
     const getPredictedLabel = (res) => {
         const cands = [
-          res?.prediction?.final_label,
-          res?.prediction?.finalLabel,
-          res?.final_label,
-          res?.finalLabel,
-          res?.pred_label,
-          res?.predLabel,
+            res?.prediction?.final_label,
+            res?.prediction?.finalLabel,
+            res?.final_label,
+            res?.finalLabel,
+            res?.pred_label,
+            res?.predLabel,
         ];
         const val = cands.find(v => typeof v === "string" && v.trim());
         return (val || "unknown").toUpperCase();
     };
 
-    /**
-     * ✅ 處理檔案完成的 callback (儲存 768 維 embedding)
-     */
+    /** ===== 已分析檔案列表 ===== */
+    const [trainRows, setTrainRows] = useState([]);
+
+    // 🧩 初始化時從 localStorage 載入
+    useEffect(() => {
+        const saved = localStorage.getItem("malvec_train_rows");
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) setTrainRows(parsed);
+            } catch { }
+        }
+    }, []);
+
+    // 🧩 trainRows 改變時自動保存
+    useEffect(() => {
+        localStorage.setItem("malvec_train_rows", JSON.stringify(trainRows));
+    }, [trainRows]);
+
+    /** ===== 處理單一檔案完成 ===== */
     const handleFileDone = (fileResult) => {
         if (!fileResult || !fileResult.details) return;
-
         const det = fileResult.details;
         const passed = det.is_pe32 && det.is_exe && det.unpack_success;
-
         if (!passed) {
             console.log("❌ File did not pass all checks:", det);
             return;
         }
 
         const predictedLabel = getPredictedLabel(fileResult);
-
-        // ✅ 提取完整 768 維 embedding
-        const embedding = fileResult.embedding || 
-                         fileResult.prediction?.embedding?.values || 
-                         null;
-        
+        const embedding = fileResult.embedding ||
+            fileResult.prediction?.embedding?.values ||
+            null;
         const embeddingInfo = fileResult.embeddingInfo || {
             dimension: embedding?.length || 0,
             source_file: fileResult.prediction?.embedding?.source_file || null,
             attention_score: fileResult.prediction?.embedding?.attention_score || 0
         };
 
-        // ✅ 驗證 embedding
-        if (embedding && Array.isArray(embedding)) {
-            console.log("✅ Added to training set:", fileResult.name);
-            console.log("🤗 Prediction (label):", predictedLabel);
-            console.log("📊 Embedding info:", {
-                dimension: embedding.length,
-                source_file: embeddingInfo.source_file,
-                attention_score: embeddingInfo.attention_score,
-                first_5_values: embedding.slice(0, 5).map(v => v.toFixed(4))
-            });
-        } else {
-            console.warn("⚠️ No valid embedding found for:", fileResult.name);
-        }
-
         const id = nextId.current++;
+        const newRow = {
+            id,
+            filename: fileResult.name,
+            pred: predictedLabel,
+            trueLabel: "-",
+            details: fileResult.details,
+            embedding: embedding,
+            embeddingDimension: embedding?.length || 0,
+            embeddingSource: embeddingInfo.source_file,
+            attentionScore: embeddingInfo.attention_score,
+            confidence: fileResult.prediction?.confidence || 0,
+            attention_heatmap: fileResult.attention_heatmap || null,
+            similar_heatmap_image: fileResult.similar_heatmap_image || null,
+            most_similar_in_label: fileResult.most_similar_in_label || null,
+            similarity_score: fileResult.similarity_score || null,
+        };
 
-        setTrainRows((prev) => [
-            {
-                id,
-                filename: fileResult.name,
-                pred: predictedLabel,
-                trueLabel: "-",
-                provision: "",
-                details: fileResult.details,
-                // ✅ 新增：儲存完整 768 維 embedding 和相關資訊
-                embedding: embedding,  // Array[768] of floats
-                embeddingDimension: embedding?.length || 0,
-                embeddingSource: embeddingInfo.source_file,
-                attentionScore: embeddingInfo.attention_score,
-                confidence: fileResult.prediction?.confidence || 0
-            },
-            ...prev,
-        ]);
+        setTrainRows((prev) => [newRow, ...prev]);
+
+        fetch(`${SPACE_A_URL}/check-new-samples`, { method: "POST" })
+            .then(res => res.json())
+            .then(js => {
+                console.log("🚀 Triggered model check:", js);
+
+                if (js.status === "need_labeling") {
+                    setModelUpdateStatus(
+                        `⚠️ 模型偵測高不確定性（entropy=${js.mean_entropy.toFixed(3)}），需要人工標註 ${js.samples_to_label.length} 筆樣本`
+                    );
+                    // 開啟人工標註彈窗
+                    setLabelModal({
+                        open: true,
+                        samples: js.samples_to_label,
+                        labelFile: js.label_file,
+                    });
+                    return;
+                }
+                if (js.status === "use_existing_model") {
+                    setModelUpdateStatus(
+                        `✅ 使用既有模型分支：${js.recommended_branch}（entropy=${js.mean_entropy.toFixed(3)}）`
+                    );
+                } else if (js.status === "ok") {
+                    setModelUpdateStatus("✅ 模型已更新完成");
+                } else {
+                    setModelUpdateStatus("ℹ️ 模型檢查完成（未觸發更新）");
+                }
+            })
+            .catch(err => {
+                console.error("⚠️ Failed to trigger Space B check:", err);
+                setModelUpdateStatus("⚠️ 無法聯絡 Space B");
+            });
+
+
     };
 
-    // 呼叫 useFileProcessor 時傳入 callback
+    // 呼叫 useFileProcessor
     const {
         bulletItems,
         bulletsTitle,
@@ -136,91 +180,12 @@ export default function Home() {
         handleCircleDone,
     } = useFileProcessor({ onFileDone: handleFileDone });
 
-    /** ===== 模型待訓練資料 ===== */
-    const [trainRows, setTrainRows] = useState([]);
-
-    /** ===== Bulk JSON 匯入 ===== */
-    const [bulkOpen, setBulkOpen] = useState(false);
-    const [bulkText, setBulkText] = useState("");
-    const [bulkFile, setBulkFile] = useState(null);
-    const [bulkError, setBulkError] = useState("");
-    const applyBulkJson = (entries) => {
-        setTrainRows(prev => prev.map(row => {
-            const hit = entries.find(e => e.filename === row.filename);
-            if (!hit) return row;
-            const v = hit.true_label;
-            return { ...row, trueLabel: v, provision: v };
-        }));
-    };
-    const parseBulk = async () => {
-        try {
-            setBulkError("");
-            let text = bulkText.trim();
-            if (bulkFile) text = await bulkFile.text();
-            if (!text) return;
-            let data = JSON.parse(text);
-            if (!Array.isArray(data)) data = [data];
-            const entries = [];
-            for (const it of data) {
-                if (it && typeof it === "object" && "filename" in it && "true_label" in it)
-                    entries.push({ filename: String(it.filename), true_label: String(it.true_label) });
-            }
-            if (!entries.length) throw new Error("Empty or invalid JSON format.");
-            applyBulkJson(entries);
-            setBulkOpen(false); setBulkText(""); setBulkFile(null);
-        } catch {
-            setBulkError("JSON 解析失敗，請確認格式為：[{\"filename\":\"xxx.exe\",\"true_label\":\"trojan\"}, ...]");
-        }
-    };
-
-    /** ===== Training Modal ===== */
-    const [trainOpen, setTrainOpen] = useState(false);
-    const eligible = useMemo(() => trainRows.filter(r => r.trueLabel && r.trueLabel !== "-"), [trainRows]);
-    const [selectedIds, setSelectedIds] = useState(new Set());
-    const [selectAll, setSelectAll] = useState(false);
-    const [training, setTraining] = useState(false);
-    const [trainCircleKey, setTrainCircleKey] = useState(0);
-
-    const toggleSelectAll = () => {
-        if (selectAll) { setSelectedIds(new Set()); setSelectAll(false); }
-        else { setSelectedIds(new Set(eligible.map(r => r.id))); setSelectAll(true); }
-    };
-    const toggleOne = (id) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            return next;
-        });
-    };
-    const startTraining = () => {
-        if (!selectedIds.size) { setTrainOpen(false); return; }
-        setTraining(true);
-        setTrainCircleKey(k => k + 1);
-        
-        // ✅ 可以在這裡使用 trainRows 中的 embedding 進行訓練
-        const selectedData = trainRows.filter(row => selectedIds.has(row.id));
-        console.log("🚀 Starting training with data:", {
-            total: selectedData.length,
-            with_embedding: selectedData.filter(r => r.embedding).length,
-            sample_embedding_dim: selectedData[0]?.embeddingDimension
-        });
-        
-        setTimeout(() => {
-            setTraining(false);
-            setTrainOpen(false);
-            setTrainRows([]);
-            setSelectedIds(new Set());
-            setSelectAll(false);
-        }, 10000);
-    };
-
-    /** ===== 狀態顯示 ===== */
-    const remaining = activeQueue.length > 0 ? activeQueue.length : 0;
-    const total = activeQueue.length > 0 ? activeQueue.length : 0;
-
     /** ===== 上傳事件 ===== */
     const onInputChange = (e) => handleFiles(e.target.files);
     const onDrop = (e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); };
+
+    const remaining = activeQueue.length > 0 ? activeQueue.length : 0;
+    const total = activeQueue.length > 0 ? activeQueue.length : 0;
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
@@ -235,7 +200,7 @@ export default function Home() {
                 >
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-semibold text-slate-800">Upload executables (.exe or Unix)</h2>
-                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳（.exe 或 Unix 執行檔）</div>
+                        <div className="text-xs text-slate-500">支援多檔與整個資料夾上傳</div>
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -249,7 +214,7 @@ export default function Home() {
                             Select executables
                         </label>
 
-                        <span className="text-sm text-slate-500">或直接把資料夾/檔案拖曳到此區</span>
+                        <span className="text-sm text-slate-500">或直接拖曳檔案到此區</span>
                     </div>
 
                     <div className="mt-4 text-sm text-slate-600">
@@ -259,11 +224,7 @@ export default function Home() {
 
                 {/* Bullet 動畫 */}
                 <div className="xl:col-span-1">
-                    <AnimatedBullets
-                        items={bulletItems}
-                        playKey={bulletPlayKey}
-                        title={bulletsTitle}
-                    />
+                    <AnimatedBullets items={bulletItems} playKey={bulletPlayKey} title={bulletsTitle} />
                 </div>
 
                 {/* Progress 圈圈 */}
@@ -282,20 +243,16 @@ export default function Home() {
                             );
                         })}
                     </div>
-                    <div className="mt-3 text-xs text-slate-500">{processing ? bulletsTitle : ""} </div>
+                    <div className="mt-3 text-xs text-slate-500">{processing ? bulletsTitle : ""}</div>
                 </section>
 
-                {/* 模型待訓練表格 */}
+                {/* 分析完成檔案列表 */}
                 <section className="xl:col-span-3 bg-white border rounded-xl p-6 shadow-sm">
-                    <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-lg font-semibold text-slate-800">模型待訓練資料</h3>
-                        <button
-                            className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm"
-                            onClick={() => setBulkOpen(true)}
-                        >
-                            匯入 true label（JSON / 貼上代碼）
-                        </button>
-                    </div>
+                    {modelUpdateStatus && (
+                        <div className="text-sm text-slate-500 mb-3">{modelUpdateStatus}</div>
+                    )}
+
+                    <h3 className="text-lg font-semibold text-slate-800 mb-3">已分析完成</h3>
 
                     <div className="overflow-x-auto">
                         <table className="min-w-full text-sm">
@@ -303,7 +260,7 @@ export default function Home() {
                                 <tr className="text-left text-slate-600 border-b">
                                     <th className="py-2 pr-4">Filename</th>
                                     <th className="py-2 pr-4">Predicted label</th>
-                                    <th className="py-2 pr-4">True label</th>
+
                                     <th className="py-2 pr-4">Action</th>
                                 </tr>
                             </thead>
@@ -313,30 +270,36 @@ export default function Home() {
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
                                         <td className="py-2 pr-4">
-                                            {row.embedding ? (
-                                                <span className="text-green-600 font-semibold">
-                                                    ✅ {row.embeddingDimension}D
-                                                </span>
-                                            ) : (
-                                                <span className="text-red-500">❌ None</span>
-                                            )}
-                                        </td>
-                                        <td className="py-2 pr-4">{row.trueLabel}</td>
-                                        <td className="py-2 pr-4">
                                             <button
                                                 className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700"
-                                                onClick={() => navigate("/report", { 
-                                                    state: { 
-                                                        filename: row.filename, 
-                                                        predLabel: row.pred,
-                                                        embedding: row.embedding,
-                                                        embeddingSource: row.embeddingSource,
-                                                        confidence: row.confidence
-                                                    } 
-                                                })}
+                                                onClick={() => {
+                                                    let heatmapData = row.attention_heatmap || row.prediction?.attention_heatmap || null;
+
+                                                    if (heatmapData && typeof heatmapData === "object") {
+                                                        // 若是物件，取出 Base64 或序列化
+                                                        heatmapData = heatmapData.image || JSON.stringify(heatmapData);
+                                                    }
+
+                                                    const encodedHeatmap = heatmapData ? encodeURIComponent(heatmapData) : null;
+
+                                                    navigate("/report", {
+                                                        state: {
+                                                            filename: row.filename,
+                                                            predLabel: row.pred,
+                                                            embedding: row.embedding,
+                                                            embeddingSource: row.embeddingSource,
+                                                            confidence: row.confidence,
+                                                            attention_heatmap: encodedHeatmap,
+                                                            similar_heatmap_image: row.similar_heatmap_image || null,     // ✅ 相似 heatmap
+                                                            most_similar_in_label: row.most_similar_in_label || null,     // ✅ 相似檔案
+                                                            similarity_score: row.similarity_score || null,               // ✅ 分數
+                                                        },
+                                                    });
+                                                }}
                                             >
                                                 View
                                             </button>
+
                                         </td>
                                     </tr>
                                 ))}
@@ -346,42 +309,38 @@ export default function Home() {
                             </tbody>
                         </table>
                     </div>
-
-                    <div className="mt-4">
-                        <button
-                            className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-                            onClick={() => setTrainOpen(true)}
-                        >
-                            start training model
-                        </button>
-                    </div>
                 </section>
             </main>
 
-            {/* Modals */}
-            <BulkLabelModal
-                bulkOpen={bulkOpen}
-                bulkText={bulkText}
-                bulkFile={bulkFile}
-                bulkError={bulkError}
-                setBulkOpen={setBulkOpen}
-                setBulkText={setBulkText}
-                setBulkFile={setBulkFile}
-                parseBulk={parseBulk}
-            />
+            {labelModal.open && (
+                <LabelModal
+                    samples={labelModal.samples}
+                    onClose={() => setLabelModal({ open: false, samples: [], labelFile: null })}
+                    onConfirm={async (labels) => {
+                        setLabelModal({ open: false, samples: [], labelFile: null });
+                        setModelUpdateStatus("📤 正在通知 Space B 進行模型更新...");
 
-            <TrainingModal
-                trainOpen={trainOpen}
-                training={training}
-                eligible={eligible}
-                selectedIds={selectedIds}
-                selectAll={selectAll}
-                toggleSelectAll={toggleSelectAll}
-                toggleOne={toggleOne}
-                startTraining={startTraining}
-                setTrainOpen={setTrainOpen}
-                trainCircleKey={trainCircleKey}
-            />
+                        try {
+                            const params = new URLSearchParams({
+                                label_file: labelModal.labelFile || "demo_label_file.json",
+                                rnd: 1,
+                            });
+                            const resp = await fetch(`${SPACE_B_URL}/train-from-labeled?${params}`, {
+                                method: "POST",
+                            });
+                            const js = await resp.json();
+                            console.log("✅ Model retrained:", js);
+                            setModelUpdateStatus("🎉 模型已完成更新！");
+                        } catch (err) {
+                            console.error("❌ update failed:", err);
+                            setModelUpdateStatus("❌ 模型更新通知失敗");
+                        }
+                    }}
+                />
+            )}
+
+
         </div>
+
     );
 }
