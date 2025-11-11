@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom"; // (from evaluation(1).jsx)
 
 /** GitHub raw JSON URLs (fill these) */
-const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";  // e.g. points with x, y, "true label" | "pred label", "time period"
-const LABEL_LIST_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/label_list.json"; // e.g. ["TROJAN.GENERIC", ...] or { "labels": [...] }
+const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";
+const LABEL_LIST_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/label_list.json";
 const somUrls = [
   "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
   "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
@@ -19,6 +19,7 @@ const BASE_PALETTE = [
   "#9c9ede", "#e7ba52", "#b5cf6b", "#cedb9c",
 ];
 
+// (Identical functions from both files)
 function assignColors(labels) {
   const map = {};
   labels.forEach((lab, i) => { map[lab] = BASE_PALETTE[i % BASE_PALETTE.length]; });
@@ -27,9 +28,9 @@ function assignColors(labels) {
 
 function tsToDateStr(ts) {
   const n = Number(ts);
-  const ms = n < 1e12 ? n * 1000 : n; // 秒→毫秒（若已是毫秒則不變）
+  const ms = n < 1e12 ? n * 1000 : n;
   const d = new Date(ms);
-  return isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 10); // YYYY-MM-DD
+  return isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 10);
 }
 
 function TopBar() {
@@ -57,7 +58,6 @@ const Section = ({ title, children, right }) => (
   </section>
 );
 
-/** Double range without external deps */
 function RangeBar({ min, max, valueMin, valueMax, onChange }) {
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
   const handleMin = (e) => {
@@ -84,6 +84,7 @@ function RangeBar({ min, max, valueMin, valueMax, onChange }) {
 }
 
 export default function EvaluationPage() {
+  // (from evaluation(1).jsx)
   const location = useLocation();  
   const navigate = useNavigate();
   const state = location?.state || {};  
@@ -98,19 +99,20 @@ export default function EvaluationPage() {
   const [timeMax, setTimeMax] = useState(1);
   const [selMin, setSelMin] = useState(1);
   const [selMax, setSelMax] = useState(1);
-  // ===== SOM state =====
+  
+  // (from evaluation(1).jsx)
   const [somDatasets, setSomDatasets] = useState([]);
   const [somTitles, setSomTitles] = useState([]);
-  // 每個元素是一張 SOM 的原始 JSON（array of cells）
   const [somErr, setSomErr] = useState("");
-  const [somIndex, setSomIndex] = useState(0);              // 當前顯示哪一張
-  const [plotRevision, setPlotRevision] = useState(0);
-  const somGraphRefs = useRef([]);                          // 每張 SOM 的 Plotly graph div 參照
+  const [somIndex, setSomIndex] = useState(0);
+  const [plotRevision, setPlotRevision] = useState(0); // (from evaluation(1).jsx)
+  const somGraphRefs = useRef([]);
   somGraphRefs.current = [];
 
-  // 儲存新檔案在 SOM 上的位置
+  // (from evaluation(1).jsx)
   const [newSampleSomPosition, setNewSampleSomPosition] = useState(null);
   
+  // (from evaluation(1).jsx)
   const LS_KEY = "somAnalysis.latest";
   const urlSom = (() => {
     try { return JSON.parse(new URLSearchParams(location.search).get("som") || "null"); } catch { return null; }
@@ -124,21 +126,17 @@ export default function EvaluationPage() {
     }
   }, [somAnalysisFromState]);
 
+  // (from evaluation(1).jsx)
   useEffect(() => {
-    // 當 somIndex 改變 (切換分頁) 時
-    // 增加 revision 數值，這會強制 Plotly.js 重新繪製
     setPlotRevision(r => r + 1); 
-  }, [somIndex]); // 依賴 somIndex
+  }, [somIndex]); 
 
+  // (from evaluation(1).jsx)
   const navigateWithBackendResult = (result, fallbackFileName = "unknown.exe") => {
     const somResult = result?.som_analysis || result?.somAnalysis || null;
     const predictedLabel = result?.pred_label || result?.predLabel || "UNKNOWN";
     const filename = result?.filename || fallbackFileName;
-
-    // 備援存一份，避免刷新遺失
     try { localStorage.setItem("somAnalysis.latest", JSON.stringify(somResult)); } catch {}
-
-    // 導到 /report，並把分析結果放進 state（report 頁會用到）
     navigate("/report", {
       state: {
         somAnalysis: somResult,
@@ -148,13 +146,13 @@ export default function EvaluationPage() {
     });
   };
 
-  // 將 ref 存入陣列的小工具
   const registerSomRef = (idx) => (fig, gd) => { somGraphRefs.current[idx] = gd; };
 
-  // ==== Random test point state ====
-  const [somRandPts, setSomRandPts] = useState([]);        // [{x,y}]，每張 SOM 一個
-  const [somPredLabels, setSomPredLabels] = useState([]);   // ["ADWARE.GATOR", ...]，每張 SOM 一個
+  // (from evaluation.jsx)
+  const [somRandPts, setSomRandPts] = useState([]);
+  const [somPredLabels, setSomPredLabels] = useState([]);
 
+  // (Identical useEffect from both files)
   useEffect(() => {
     (async () => {
       try {
@@ -166,23 +164,15 @@ export default function EvaluationPage() {
         if (!ptRes.ok) throw new Error(`embedding points HTTP ${ptRes.status}`);
         const [labs, pts] = await Promise.all([labRes.json(), ptRes.json()]);
         setLabelList(labs);
-        // 1) 先看原始長度
         console.log("[EMB] raw pts.length =", Array.isArray(pts) ? pts.length : -1);
-
-        // 需要 time 欄位（數字）；若缺少，預設為 1..N
         const hasTime = pts.length && typeof pts[0].first_submission_date !== "undefined";
         let enriched = hasTime
-          ? pts.map(r => ({ ...r, time_period: Number(r.first_submission_date) })) // ←重點
+          ? pts.map(r => ({ ...r, time_period: Number(r.first_submission_date) }))
           : pts.map((r, i) => ({ ...r, time_period: i + 1 }));
-
-        // 3) 去重（以 x|y|pred_label|time_period 當 key；可按你的欄位調）
         const keyOf = (r) => `${r.x}|${r.y}|${r.pred_label ?? ""}|${r.time_period ?? ""}`;
         enriched = Array.from(new Map(enriched.map(r => [keyOf(r), r])).values());
         console.log("[EMB] enriched & dedup length =", enriched.length);
-
-        // 4) 覆寫，不要 append
         setAllPoints(() => enriched);
-
         const tMin = Math.max(1, Math.min(...enriched.map((r) => Number(r.time_period) || 1)));
         const tMax = Math.max(...enriched.map((r) => Number(r.time_period) || 1));
         setTimeMin(tMin);
@@ -195,24 +185,20 @@ export default function EvaluationPage() {
     })();
   }, []);
 
+  // (from evaluation(1).jsx)
   useEffect(() => {
     if (!somAnalysisFromState) {
       console.log("⚠️ No SOM analysis data from backend");
       setNewSampleSomPosition(null);
       return;
     }
-  
     console.log("🔍 SOM Analysis received:", somAnalysisFromState);
-  
-    // ✅ 提取位置
     const position = somAnalysisFromState.winner_position || somAnalysisFromState.position;
     if (position && typeof position.row === 'number' && typeof position.col === 'number') {
-      // 只保存位置
       setNewSampleSomPosition({
         row: position.row,
         col: position.col
       });
-      
       console.log(`✅ New sample SOM position: (row=${position.row}, col=${position.col})`);
     } else {
       console.warn("⚠️ Invalid SOM position data:", position);
@@ -220,11 +206,15 @@ export default function EvaluationPage() {
     }
   }, [somAnalysisFromState]);
 
-  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, newSamplePos = null) {
+  /**
+   * ✨ (整合)
+   * 接受 newSamplePos (from evaluation(1)) 和 extraPoints (from evaluation)
+   */
+  function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, newSamplePos = null, extraPoints = []) {
     const {
-      radius = 0.35,      // 每格圓半徑（座標單位）
-      k = 3,              // 每格最多幾片（其餘合併到 OTHER）
-      showOther = true,   // 是否顯示 OTHER 楔形
+      radius = 0.35,
+      k = 3,
+      showOther = true,
       outlineColor = "#333",
       outlineWidth = 0.6,
     } = opts;
@@ -239,7 +229,6 @@ export default function EvaluationPage() {
       if (Number.isFinite(c.col)) maxCol = Math.max(maxCol, c.col);
     }
 
-    // 底層透明散點：提供 hover 與座標定位
     const baseTrace = {
       type: "scatter",
       mode: "markers",
@@ -247,33 +236,26 @@ export default function EvaluationPage() {
       y: somArray.map(c => c.row),
       marker: { size: 0.1, opacity: 0 },
       hoverinfo: "text",
-      text: somArray.map(c => formatPropsForHover(c.proportions, 3)), // 已四捨五入到小數第3位
+      text: somArray.map(c => formatPropsForHover(c.proportions, 3)),
       hoverlabel: { align: "left" },
       showlegend: false,
     };
 
-    // 產生 shapes：每格一個外框圓 + 多個扇形 path
     const shapes = [];
     const OTHER_KEY = "OTHER";
 
     for (const c of somArray) {
       const x = c.col, y = c.row;
       const props = Object.entries(c.proportions || {}).map(([lab, v]) => [lab, Number(v) || 0]);
-
-      // 依比例排序
       props.sort((a, b) => b[1] - a[1]);
       const top = props.slice(0, k);
       const rest = props.slice(k);
-
       let otherVal = 0;
       if (showOther && rest.length) {
         otherVal = rest.reduce((a, [, v]) => a + v, 0);
         top.push([OTHER_KEY, otherVal]);
       }
-
-      // 正規化到 1（避免總和不是 1）
       const total = top.reduce((a, [, v]) => a + v, 0) || 1;
-      // 先畫外框圓（淡灰背景，顯示邊界）
       shapes.push({
         type: "circle",
         xref: "x", yref: "y",
@@ -283,8 +265,6 @@ export default function EvaluationPage() {
         layer: "below",
         opacity: 1
       });
-
-      // 由 0 角開始順時針畫扇形
       let acc = 0;
       for (const [lab, val] of top) {
         const frac = (val || 0) / total;
@@ -292,8 +272,6 @@ export default function EvaluationPage() {
         const start = acc * 2 * Math.PI;
         const end = (acc + frac) * 2 * Math.PI;
         acc += frac;
-
-        // 近似弧：切成多段線
         const segs = Math.max(10, Math.floor((end - start) / (Math.PI / 16)));
         const pts = [];
         for (let s = 0; s <= segs; s++) {
@@ -306,7 +284,6 @@ export default function EvaluationPage() {
           ...pts.slice(1).map(([px, py]) => `L ${px} ${py}`),
           "Z",
         ].join(" ");
-
         shapes.push({
           type: "path",
           path,
@@ -319,15 +296,12 @@ export default function EvaluationPage() {
       }
     }
 
-    // ✅ 添加新樣本的黑點標記
+    // (from evaluation(1).jsx) 繪製新樣本的標記
     if (newSamplePos && typeof newSamplePos.row === 'number' && typeof newSamplePos.col === 'number') {
       const markerX = newSamplePos.col;
       const markerY = newSamplePos.row;
       const markerRadius = 0.15;
-
       console.log(`🎯 Adding marker at row=${markerY}, col=${markerX}`);
-
-      // 白色光暈
       shapes.push({
         type: "circle",
         xref: "x", yref: "y",
@@ -340,8 +314,6 @@ export default function EvaluationPage() {
         layer: "above",
         opacity: 0.9
       });
-
-      // 黑色標記點
       shapes.push({
         type: "circle",
         xref: "x", yref: "y",
@@ -356,12 +328,11 @@ export default function EvaluationPage() {
       });
     }
 
-    // ★ 新增：蒐集本圖出現的 labels，建立 legend 專用 traces
     const labelsInThisSom = collectLabelsFromSom(somArray, 30);
     const legendTraces = makeLegendTraces(
       labelsInThisSom,
       labelColorsFromAll,
-      maxCol + 5,   // 放在軸外（不會出現在視區）
+      maxCol + 5,
       maxRow + 5
     );
 
@@ -370,9 +341,9 @@ export default function EvaluationPage() {
       xaxis: { range: [-0.8, maxCol + 0.8], dtick: 1, title: "col", domain: [0, 0.82] },
       yaxis: { range: [maxRow + 0.8, -0.8], dtick: 1, title: "row" },
       hovermode: "closest",
-      showlegend: true,  // ★ 新增：開啟 legend
+      showlegend: true,
       legend: {
-        x: 0.86, y: 1, xanchor: "left", yanchor: "top",    // ★ 圖內靠右上角
+        x: 0.86, y: 1, xanchor: "left", yanchor: "top",
         orientation: "v",
         bgcolor: "rgba(255,255,255,0.9)",
         bordercolor: "rgba(0,0,0,0.1)",
@@ -382,13 +353,27 @@ export default function EvaluationPage() {
       shapes,
     };
 
-    // ✅ 正確的程式碼
+    // ✨ (from evaluation.jsx) 加入 extraPoints 的 trace
+    const testPointTrace = extraPoints?.length ? {
+      type: "scatter",
+      mode: "markers",
+      x: extraPoints.map(p => p.x),
+      y: extraPoints.map(p => p.y),
+      marker: { size: 10, color: "black" },
+      name: "test point",
+      showlegend: false,
+      hoverinfo: "skip",
+    } : null;
+
     return {
-      traces: [baseTrace, ...legendTraces],
+      traces: testPointTrace 
+        ? [baseTrace, ...legendTraces, testPointTrace] 
+        : [baseTrace, ...legendTraces],
       layout
     };
   }
 
+  // (Identical functions from both files)
   function formatPropsForHover(props, digits = 3, topK = 10) {
     const arr = Object.entries(props || {})
       .map(([k, v]) => [k, Number(v) || 0])
@@ -408,11 +393,10 @@ export default function EvaluationPage() {
   }
 
   function makeLegendTraces(labels, labelColors, offX, offY) {
-    // 在圖外放 1 個點，用來出現在 legend 裡
     return labels.map((lab) => ({
       type: "scatter",
       mode: "markers",
-      x: [offX], y: [offY],           // 放到軸域外，不會看到點
+      x: [offX], y: [offY],
       marker: { size: 10, color: labelColors[lab] || "#7f7f7f" },
       name: lab,
       showlegend: true,
@@ -420,45 +404,29 @@ export default function EvaluationPage() {
     }));
   }
 
-  // ---- 新增：把各種 JSON 形狀規格化成「[{row, col, counts, proportions}, ...]」----
-  // 在任何形狀的 JSON 裡，把 "像 cell 的東西" 全部抓出來
   function normalizeSomJson(root) {
-    // 1) 若是陣列，直接走 map
     const tryArray = (arr) => Array.isArray(arr) ? arr : null;
-
-    // 2) 若是物件，但長得像 { "0": {...}, "1": {...} }，先轉成陣列
     const objectValuesIfIndexObject = (obj) => {
       if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
       const keys = Object.keys(obj);
       if (keys.length === 0) return null;
-      // 全是連號數字鍵？
       const isIndexLike = keys.every(k => /^\d+$/.test(k));
       return isIndexLike ? keys.sort((a, b) => a - b).map(k => obj[k]) : null;
     };
-
     function deepFindArray(node, depth = 0, limit = 6) {
       if (depth > limit || node == null) return null;
-
-      // a) 本身就是陣列
       const arr = tryArray(node);
       if (arr) return arr;
-
-      // b) { "0": {...}, "1": {...} } 類型
       const asIndexArr = objectValuesIfIndexObject(node);
       if (asIndexArr) return asIndexArr;
-
-      // c) 在屬性裡找
       if (typeof node === "object") {
         for (const v of Object.values(node)) {
-          // 先嘗試直接當陣列
           const a = tryArray(v);
           if (a) {
-            // 試著判斷是不是 cell 陣列
             const first = a.find(e => e != null);
             if (first && typeof first === "object") return a;
           }
         }
-        // 再遞迴往下找
         for (const v of Object.values(node)) {
           const found = deepFindArray(v, depth + 1, limit);
           if (found) return found;
@@ -466,22 +434,15 @@ export default function EvaluationPage() {
       }
       return null;
     }
-
-    // 先找出「最可能的陣列」
     let cells = deepFindArray(root) || [];
     if (!Array.isArray(cells)) cells = [];
-
-    // 做欄位別名與型別修正
     const out = cells.map((c) => {
-      // row/col 多種命名；可能是字串
       const rowRaw = c?.row ?? c?.r ?? c?.i ?? c?.y;
       const colRaw = c?.col ?? c?.column ?? c?.c ?? c?.j ?? c?.x;
-
       const row = Number(rowRaw);
       const col = Number(colRaw);
       const counts = c?.counts ?? {};
       const proportions = c?.proportions ?? {};
-
       return {
         ...c,
         row: Number.isFinite(row) ? row : 0,
@@ -490,8 +451,6 @@ export default function EvaluationPage() {
         proportions: proportions && typeof proportions === "object" ? proportions : {},
       };
     });
-
-    // 過濾掉完全沒有資訊的元素（避免空物害 range 變 NaN）
     return out.filter(
       (c) =>
         Number.isFinite(c.row) && Number.isFinite(c.col) &&
@@ -499,7 +458,7 @@ export default function EvaluationPage() {
     );
   }
 
-  // ---- 載入多個 SOM JSON（支援各種殼與欄位別名）----
+  // (Identical useEffect from both files)
   useEffect(() => {
     (async () => {
       if (!somUrls || !somUrls.length) return;
@@ -510,8 +469,6 @@ export default function EvaluationPage() {
         resps.forEach((r, i) => {
           if (!r.ok) throw new Error(`SOM[${i}] HTTP ${r.status}`);
         });
-
-        // 部分伺服器會傳奇怪 content-type；保守做法：先 text 再 JSON.parse
         const texts = await Promise.all(resps.map(r => r.text()));
         const jsons = texts.map((t, i) => {
           try {
@@ -521,12 +478,10 @@ export default function EvaluationPage() {
             throw new Error(`SOM[${i}] JSON parse failed`);
           }
         });
-
         const norm = jsons.map((j, i) => {
           const arr = normalizeSomJson(j);
           console.log(`[SOM] dataset #${i} raw keys:`, j && typeof j === "object" ? Object.keys(j) : typeof j);
           console.log(`[SOM] dataset #${i} normalized length:`, arr.length);
-          // 額外印出前 2 筆供你核對
           if (arr.length) console.log(`[SOM] sample[${i}]:`, arr.slice(0, 2));
           return arr;
         });
@@ -542,6 +497,7 @@ export default function EvaluationPage() {
     })();
   }, []);
 
+  // (Identical function from both files)
   function knnPredictSom(somArray, qx, qy, k = 5) {
     if (!Array.isArray(somArray) || somArray.length === 0) return { label: "UNKNOWN", scores: {} };
     const eps = 1e-6;
@@ -550,7 +506,6 @@ export default function EvaluationPage() {
       const dy = qy - Number(c.row || 0);
       return { cell: c, d: Math.hypot(dx, dy) };
     }).sort((a, b) => a.d - b.d).slice(0, Math.min(k, somArray.length));
-
     const scores = {};
     for (const { cell, d } of distList) {
       const w = 1 / (d + eps);
@@ -564,6 +519,7 @@ export default function EvaluationPage() {
     return { label: bestLab, scores };
   }
 
+  // (Identical useMemo hooks from both files)
   const labelColors = useMemo(() => {
     if (!labelList) return {};
     const uniq = Array.isArray(labelList) ? Array.from(new Set(labelList)).filter(Boolean) : [];
@@ -620,7 +576,7 @@ export default function EvaluationPage() {
     return { labels, counts, colors };
   }, [filteredPoints, labelColors]);
 
-  const [edits, setEdits] = useState({}); // kept if you still use annotation elsewhere
+  const [edits, setEdits] = useState({});
   useEffect(() => { setEdits({}); }, [selMin, selMax]);
 
   const rangeInfo = useMemo(() => {
@@ -634,6 +590,7 @@ export default function EvaluationPage() {
   const commitMin = (v) => { const n = Number(v); if (!Number.isNaN(n)) setSelMin(Math.max(timeMin, Math.min(n, selMax))); };
   const commitMax = (v) => { const n = Number(v); if (!Number.isNaN(n)) setSelMax(Math.min(timeMax, Math.max(n, selMin))); };
 
+  // (JSX is identical until the SOM Section)
   return (
     <div className="min-h-screen">
       <TopBar />
@@ -643,7 +600,6 @@ export default function EvaluationPage() {
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="border border-slate-200 rounded-2xl bg-white shadow-sm p-4">
             <div className="flex items-center gap-4">
-              {/* 左數字框：下限 */}
               <div className="flex flex-col w-32">
                 <label className="text-xs text-slate-500 mb-1">下限 (first_submission_date)</label>
                 <input
@@ -655,8 +611,6 @@ export default function EvaluationPage() {
                   className="border rounded px-2 py-1"
                 />
               </div>
-
-              {/* 中間：雙滑桿 + 比例 */}
               <div className="flex-1">
                 <RangeBar
                   min={timeMin}
@@ -674,8 +628,6 @@ export default function EvaluationPage() {
                     : "讀取中…"}
                 </div>
               </div>
-
-              {/* 右數字框：上限 */}
               <div className="flex flex-col w-32">
                 <label className="text-xs text-slate-500 mb-1">上限 (first_submission_date)</label>
                 <input
@@ -711,7 +663,7 @@ export default function EvaluationPage() {
           )}
         </Section>
 
-        {/* 3. SOM maps (替換原本 APT30 圖表) */}
+        {/* 3. SOM maps (✨ 整合) */}
         <Section title={somTitles[somIndex] || "Self-Organizing Map"}>
           {somErr && <div className="text-red-600 text-sm mb-2">SOM load error: {somErr}</div>}
           {!somDatasets.length ? (
@@ -747,24 +699,27 @@ export default function EvaluationPage() {
                 ))}
               </div>
 
-              {/* 重要：同一個 section 中「同時渲染所有 SOM」，
-                  只有當前索引那張顯示在視口；其餘放到螢幕外且很小，
-                  但仍然初始化，才能在 PDF 匯出時逐一輸出所有圖 */}
+              {/* (保留 evaluation(1).jsx 的渲染結構) */}
               <div className="relative">
                 {somDatasets.map((somArray, i) => {
-                  // 在渲染 SOM 的 map 迴圈裡（i 是索引）
+                  
+                  // ✨ (from evaluation.jsx)
                   const extraPt = somRandPts[i] ? [somRandPts[i]] : [];
+                  
+                  // ✨ (整合) 傳入 newSampleSomPosition 和 extraPt
                   const { traces, layout } = buildSomPlotPieMulti(
                     somArray,
                     labelColors,
                     { radius: 0.35, k: 3, showOther: true },
-                    newSampleSomPosition // ← 新增的參數：額外點extraPt
+                    newSampleSomPosition, // (from evaluation(1).jsx)
+                    extraPt // (from evaluation.jsx)
                   );
 
                   const isActive = i === somIndex;
                   return (
                     <div
                       key={i}
+                      // (使用 evaluation(1).jsx 的樣式)
                       style={isActive
                         ? { width: "100%", height: 500, maxWidth: 800, margin: 'auto' }
                         : { display: 'none' }}
@@ -772,11 +727,11 @@ export default function EvaluationPage() {
                         <Plot
                           data={traces}
                           layout={layout}
-                          style={{ width: "100%", height: "100%" }} // 高度 100%
+                          style={{ width: "100%", height: "100%" }}
                           config={{ responsive: true, displayModeBar: true }}
                           onInitialized={registerSomRef(i)}
                           onUpdate={registerSomRef(i)}
-                          revision={plotRevision}
+                          revision={plotRevision} // (from evaluation(1).jsx)
                         />
                       
                     </div>

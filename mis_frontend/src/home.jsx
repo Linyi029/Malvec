@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedBullets from "./components/AnimatedBullets";
-import BulkLabelModal from "./components/BulkLabelModal";
+import BulkLabelModal from "./components/BulkLabelModal"; // (from home(1))
 import CircleProgress from "./components/CircleProgress";
+import LabelModal from "./components/LabelModal.jsx"; // ✨ (from home.jsx)
 import TopBar from "./components/TopBar";
-import TrainingModal from "./components/TrainingModal";
+import TrainingModal from "./components/TrainingModal"; // (from home(1))
 import useFileProcessor from "./hooks/useFileProcessor";
-const TRAIN_ROWS_KEY = 'malvec.trainRowsData';
+
+const TRAIN_ROWS_KEY = 'malvec.trainRowsData'; // (from home(1))
 
 /** ==========================
- *  設定標籤來源與顏色
- *  ========================== */
+ * 設定標籤來源與顏色
+ * ========================== */
 export const LABELS_JSON = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/label_list.json";
 export const BASE_PALETTE = [
     "#1f77b4", "#f4b37aff", "#63c063ff", "#d62728", "#9467bd",
@@ -43,11 +45,26 @@ export default function Home() {
         })();
     }, []);
 
+    // ===== ✨ (from home.jsx) Space B & A 設定 =====
+    const SPACE_B_URL = "https://lyi029-model-update-test.hf.space";
+    const SPACE_A_URL = "https://lyi029-test.hf.space";
+    
+    // ===== ✨ (from home.jsx) Label Modal State =====
+    const [labelModal, setLabelModal] = useState({
+        open: false,
+        samples: [],
+        labelFile: null,
+    });
+    
+    // ===== ✨ (from home.jsx) 模型更新狀態 =====
+    const [modelUpdateStatus, setModelUpdateStatus] = useState("");
+
+
     /** ===== 上傳與動畫流程 Hook ===== */
     const nextId = useRef(1);
 
     /**
-     * ✅ 從 fileResult 中提取 predicted label
+     * ✅ 提取 predicted label (from home(1))
      */
     const getPredictedLabel = (res) => {
         const cands = [
@@ -63,7 +80,7 @@ export default function Home() {
     };
 
     /**
-     * ✅ 處理檔案完成的 callback (儲存 768 維 embedding)
+     * ✅ 處理檔案完成的 callback (✨ 整合)
      */
     const handleFileDone = useCallback((fileResult) => {
         if (!fileResult || !fileResult.details) return;
@@ -78,7 +95,7 @@ export default function Home() {
 
         const predictedLabel = getPredictedLabel(fileResult);
 
-        // ✅ 提取完整 768 維 embedding
+        // ✅ (from home(1)) 提取 embedding
         const embedding = fileResult.embedding || 
                          fileResult.prediction?.embedding?.values || 
                          null;
@@ -89,7 +106,7 @@ export default function Home() {
             attention_score: fileResult.prediction?.embedding?.attention_score || 0
         };
 
-        // ✅ 驗證 embedding
+        // ✅ (from home(1)) 驗證 embedding
         if (embedding && Array.isArray(embedding)) {
             console.log("✅ Added to training set:", fileResult.name);
             console.log("🤗 Prediction (label):", predictedLabel);
@@ -102,6 +119,12 @@ export default function Home() {
         } else {
             console.warn("⚠️ No valid embedding found for:", fileResult.name);
         }
+        
+        // ✨ (from home.jsx) 提取 Heatmap 資料
+        const attentionHeatmap = fileResult.attention_heatmap || null;
+        const similarHeatmapImage = fileResult.similar_heatmap_image || null;
+        const mostSimilarInLabel = fileResult.most_similar_in_label || null;
+        const similarityScore = fileResult.similarity_score || null;
 
         const id = nextId.current++;
 
@@ -110,23 +133,61 @@ export default function Home() {
                 id,
                 filename: fileResult.name,
                 pred: predictedLabel,
-                trueLabel: "-",
-                provision: "",
+                trueLabel: "-", // (from home(1))
+                provision: "", // (from home(1))
                 details: fileResult.details,
-                // ✅ 新增：儲存完整 768 維 embedding 和相關資訊
-                embedding: embedding,  // Array[768] of floats
+                embedding: embedding,
                 embeddingDimension: embedding?.length || 0,
                 embeddingSource: embeddingInfo.source_file,
                 attentionScore: embeddingInfo.attention_score,
                 confidence: fileResult.prediction?.confidence || 0,
-                somAnalysis: fileResult.somAnalysis,
+                somAnalysis: fileResult.somAnalysis, // (from home(1))
+                
+                // ✨ (from home.jsx) 新增 Heatmap 相關欄位
+                attention_heatmap: attentionHeatmap,
+                similar_heatmap_image: similarHeatmapImage,
+                most_similar_in_label: mostSimilarInLabel,
+                similarity_score: similarityScore,
             },
             ...prev,
         ]);
-    },[]);
+
+        // ✨ (from home.jsx) 觸發主動學習檢查
+        fetch(`${SPACE_A_URL}/check-new-samples`, { method: "POST" })
+            .then(res => res.json())
+            .then(js => {
+                console.log("🚀 Triggered model check:", js);
+
+                if (js.status === "need_labeling") {
+                    setModelUpdateStatus(
+                        `⚠️ 模型偵測高不確定性（entropy=${js.mean_entropy.toFixed(3)}），需要人工標註 ${js.samples_to_label.length} 筆樣本`
+                    );
+                    setLabelModal({
+                        open: true,
+                        samples: js.samples_to_label,
+                        labelFile: js.label_file,
+                    });
+                    return;
+                }
+                if (js.status === "use_existing_model") {
+                    setModelUpdateStatus(
+                        `✅ 使用既有模型分支：${js.recommended_branch}（entropy=${js.mean_entropy.toFixed(3)}）`
+                    );
+                } else if (js.status === "ok") {
+                    setModelUpdateStatus("✅ 模型已更新完成");
+                } else {
+                    setModelUpdateStatus("ℹ️ 模型檢查完成（未觸發更新）");
+                }
+            })
+            .catch(err => {
+                console.error("⚠️ Failed to trigger Space B check:", err);
+                setModelUpdateStatus("⚠️ 無法聯絡 Space B");
+            });
+            
+    },[]); // (home(1) 的 useCallback 是空的, 這裡保持)
 
 
-    // 呼叫 useFileProcessor 時傳入 callback
+    // 呼叫 useFileProcessor
     const {
         bulletItems,
         bulletsTitle,
@@ -136,18 +197,16 @@ export default function Home() {
         circleStep,
         circleDone,
         handleFiles,
-        handleCircleDone,
+        handleCircleDone, // (來自 home(1) & home)
     } = useFileProcessor({ onFileDone: handleFileDone });
 
-     /** ===== 模型待訓練資料 ===== */
-    const [trainRows, setTrainRows] = useState(() => { // ✅ 修改：使用延遲初始化
+     /** ===== (from home(1)) 模型待訓練資料 (使用 sessionStorage) ===== */
+    const [trainRows, setTrainRows] = useState(() => {
         try {
             const storedData = sessionStorage.getItem(TRAIN_ROWS_KEY);
             if (storedData) {
                 const parsedData = JSON.parse(storedData);
                 if (Array.isArray(parsedData) && parsedData.length > 0) {
-                    // 同時恢復 nextId，避免 ID 衝突
-                    // 我們假設 nextId 存在於這個檔案的某處 (如您的第 48 行)
                     if (nextId && nextId.current) {
                          nextId.current = Math.max(...parsedData.map(r => r.id)) + 1;
                     }
@@ -157,10 +216,10 @@ export default function Home() {
         } catch (e) {
             console.error("Failed to read trainRows from sessionStorage", e);
         }
-        return []; // 預設為空陣列
+        return [];
     });
 
-    // ✅ 新增：當 trainRows 變化時，將其存入 sessionStorage
+    // ✅ (from home(1)) 存入 sessionStorage
     useEffect(() => {
         try {
             sessionStorage.setItem(TRAIN_ROWS_KEY, JSON.stringify(trainRows));
@@ -170,7 +229,7 @@ export default function Home() {
     }, [trainRows]);
 
 
-    /** ===== Bulk JSON 匯入 ===== */
+    /** ===== (from home(1)) Bulk JSON 匯入 ===== */
     const [bulkOpen, setBulkOpen] = useState(false);
     const [bulkText, setBulkText] = useState("");
     const [bulkFile, setBulkFile] = useState(null);
@@ -204,7 +263,7 @@ export default function Home() {
         }
     };
 
-    /** ===== Training Modal ===== */
+    /** ===== (from home(1)) Training Modal ===== */
     const [trainOpen, setTrainOpen] = useState(false);
     const eligible = useMemo(() => trainRows.filter(r => r.trueLabel && r.trueLabel !== "-"), [trainRows]);
     const [selectedIds, setSelectedIds] = useState(new Set());
@@ -228,7 +287,6 @@ export default function Home() {
         setTraining(true);
         setTrainCircleKey(k => k + 1);
         
-        // ✅ 可以在這裡使用 trainRows 中的 embedding 進行訓練
         const selectedData = trainRows.filter(row => selectedIds.has(row.id));
         console.log("🚀 Starting training with data:", {
             total: selectedData.length,
@@ -307,7 +365,12 @@ export default function Home() {
                                     : (i + 1 < circleStep ? "done" : (i + 1 === circleStep ? "active" : "idle"));
                             return (
                                 <div key={label} className="flex flex-col items-center gap-2">
-                                    <CircleProgress durationSec={0.5} status={status} />
+                                    {/* ✨ (from home.jsx) 加上 onDone */}
+                                    <CircleProgress 
+                                        durationSec={0.5} 
+                                        status={status} 
+                                        onDone={() => handleCircleDone(i)} 
+                                    />
                                     <div className="text-slate-700 text-sm">{label}</div>
                                 </div>
                             );
@@ -316,10 +379,16 @@ export default function Home() {
                     <div className="mt-3 text-xs text-slate-500">{processing ? bulletsTitle : ""} </div>
                 </section>
 
-                {/* 模型待訓練表格 */}
+                {/* (from home(1)) 模型待訓練表格 */}
                 <section className="xl:col-span-3 bg-white border rounded-xl p-6 shadow-sm">
+                    {/* ✨ (from home.jsx) 加入狀態顯示 */}
+                    {modelUpdateStatus && (
+                        <div className="text-sm text-slate-500 mb-3">{modelUpdateStatus}</div>
+                    )}
+
                     <div className="flex items-start justify-between mb-3">
                         <h3 className="text-lg font-semibold text-slate-800">模型待訓練資料</h3>
+                        {/* (from home(1)) 保留 Bulk Label 按鈕 */}
                         <button
                             className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm"
                             onClick={() => setBulkOpen(true)}
@@ -334,7 +403,7 @@ export default function Home() {
                                 <tr className="text-left text-slate-600 border-b">
                                     <th className="py-2 pr-4">Filename</th>
                                     <th className="py-2 pr-4">Predicted label</th>
-                                    <th className="py-2 pr-4">True label</th>
+                                    <th className="py-2 pr-4">True label</th> {/* (from home(1)) */}
                                     <th className="py-2 pr-4">Action</th>
                                 </tr>
                             </thead>
@@ -343,20 +412,37 @@ export default function Home() {
                                     <tr key={row.id} className="border-b last:border-b-0">
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
-                                        <td className="py-2 pr-4">{row.trueLabel}</td>
+                                        <td className="py-2 pr-4">{row.trueLabel}</td> {/* (from home(1)) */}
                                         <td className="py-2 pr-4">
                                             <button
                                                 className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700"
-                                                onClick={() => navigate("/report", { 
-                                                    state: { 
-                                                        filename: row.filename, 
-                                                        predLabel: row.pred,
-                                                        embedding: row.embedding,
-                                                        embeddingSource: row.embeddingSource,
-                                                        confidence: row.confidence,
-                                                        somAnalysis: row.somAnalysis
-                                                    } 
-                                                })}
+                                                // ✨ (整合) 導航時傳遞 SOM 和 Heatmap 資料
+                                                onClick={() => {
+                                                    // (from home.jsx) Heatmap 編碼
+                                                    let heatmapData = row.attention_heatmap || null;
+                                                    if (heatmapData && typeof heatmapData === "object") {
+                                                        heatmapData = heatmapData.image || JSON.stringify(heatmapData);
+                                                    }
+                                                    const encodedHeatmap = heatmapData ? encodeURIComponent(heatmapData) : null;
+
+                                                    navigate("/report", { 
+                                                        state: { 
+                                                            // (from home(1))
+                                                            filename: row.filename, 
+                                                            predLabel: row.pred,
+                                                            embedding: row.embedding,
+                                                            embeddingSource: row.embeddingSource,
+                                                            confidence: row.confidence,
+                                                            somAnalysis: row.somAnalysis,
+                                                            
+                                                            // ✨ (from home.jsx)
+                                                            attention_heatmap: encodedHeatmap,
+                                                            similar_heatmap_image: row.similar_heatmap_image || null,
+                                                            most_similar_in_label: row.most_similar_in_label || null,
+                                                            similarity_score: row.similarity_score || null,
+                                                        } 
+                                                    })
+                                                }}
                                             >
                                                 View
                                             </button>
@@ -371,11 +457,19 @@ export default function Home() {
                     </div>
 
                     <div className="mt-4">
+                        {/* (from home(1)) 保留此按鈕觸發 TrainingModal */}
+                        <button
+                            className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-300"
+                            disabled={!eligible.length}
+                            onClick={() => setTrainOpen(true)}
+                        >
+                            Train Model ({eligible.length})
+                        </button>
                     </div>
                 </section>
             </main>
 
-            {/* Modals */}
+            {/* (from home(1)) Modals */}
             <BulkLabelModal
                 bulkOpen={bulkOpen}
                 bulkText={bulkText}
@@ -399,6 +493,34 @@ export default function Home() {
                 setTrainOpen={setTrainOpen}
                 trainCircleKey={trainCircleKey}
             />
+            
+            {/* ✨ (from home.jsx) 新增 LabelModal */}
+            {labelModal.open && (
+                <LabelModal
+                    samples={labelModal.samples}
+                    onClose={() => setLabelModal({ open: false, samples: [], labelFile: null })}
+                    onConfirm={async (labels) => {
+                        setLabelModal({ open: false, samples: [], labelFile: null });
+                        setModelUpdateStatus("📤 正在通知 Space B 進行模型更新...");
+
+                        try {
+                            const params = new URLSearchParams({
+                                label_file: labelModal.labelFile || "demo_label_file.json",
+                                rnd: 1,
+                            });
+                            const resp = await fetch(`${SPACE_B_URL}/train-from-labeled?${params}`, {
+                                method: "POST",
+                            });
+                            const js = await resp.json();
+                            console.log("✅ Model retrained:", js);
+                            setModelUpdateStatus("🎉 模型已完成更新！");
+                        } catch (err) {
+                            console.error("❌ update failed:", err);
+                            setModelUpdateStatus("❌ 模型更新通知失敗");
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

@@ -23,7 +23,7 @@ export default function useFileProcessor(props = {}) {
   const API_URL = "http://127.0.0.1:8000/api/analyze";
   const currentFileRef = useRef(null);
 
-  // ✅ 步驟 2: 重寫 startNextFile 以符合新的動畫邏輯
+  // ✅ 步驟 2: 重寫 startNextFile (保留 (1).js 的動畫邏輯)
   async function startNextFile(file) {
     if (!file) return;
 
@@ -44,22 +44,17 @@ export default function useFileProcessor(props = {}) {
     
     try {
       // --- 2. 播放第 1 圈 (Disassembling) ---
-      // ✅ 啟動第 1 個圈圈
       setCircleStep(1); 
-      // ✅ 等待 5 秒鐘 (模擬 Disassembling)
       await wait(5000); 
 
       // --- 3. 播放第 2 圈 (Malware Family Identification) 並等待後端 ---
-      // ✅ 啟動第 2 個圈圈 (第 1 圈會自動填滿)
       setCircleStep(2); 
 
-      // ✅ (在第 2 圈轉動時) 準備並發送 API 請求
       const formData = new FormData();
       formData.append("file", file, file.name);
       
       console.log("📤 Uploading to:", API_URL);
 
-      // ✅ (在第 2 圈轉動時) 等待後端 API 回應
       const response = await fetch(API_URL, { 
         method: "POST", 
         body: formData,
@@ -76,26 +71,29 @@ export default function useFileProcessor(props = {}) {
       const result = await response.json();
       console.log("📊 Analysis result:", result);
 
-      // --- 4. 收到結果，快速播放 3, 4 圈 ---
+      // --- 4. 收到結果，快速播放 3, 4 圈 (保留 (1).js 的動畫) ---
       
-      // ✅ 填滿第 2 圈
       await wait(1500); 
-      // ✅ 啟動並填滿第 3 圈 (Attention Heatmap)
-      setCircleStep(3); 
+      setCircleStep(3); // (Attention Heatmap)
       await wait(1500); 
-      // ✅ 啟動並填滿第 4 圈 (SOM Analyzing)
-      setCircleStep(4); 
+      setCircleStep(4); // (SOM Analyzing)
       await wait(1500); 
-      // ✅ 全部完成 (狀態 > 4 即為 done)
-      setCircleStep(5); 
+      setCircleStep(5); // (Done)
       setCircleDone([true, true, true, true]);
-      await wait(900); // 結束後短暫停留
+      await wait(900); 
 
-      // --- 5. 準備要顯示的資料 (與之前相同) ---
+      // --- 5. 準備要顯示的資料 (✨ 整合 heatmap) ---
       const det = result.details || {};
       const pred = result.prediction || {};
       const som = result.som_analysis || null;
 
+      // ✨ (新增) 從 useFileProcessor.js 來的 Heatmap 提取
+      const attentionHeatmap =
+        result.attention_heatmap ||
+        pred.attention_heatmap ||
+        null;
+
+      // (保留 (1).js 的 SOM 處理)
       let somInfo = null;
       if (som) {
         const pos = som.winner_position || som.position || null;
@@ -134,20 +132,22 @@ export default function useFileProcessor(props = {}) {
       const is_exe = det.is_exe ? "✅ Yes" : "❌ No";
       const is_upx = det.unpack_success ? "✅ Yes" : "❌ No";
 
-      // --- 6. 按順序更新 UI (與之前相同) ---
+      // --- 6. 按順序更新 UI (✨ 整合 heatmap) ---
 
       // (A) 更新 AnimatedBullets 的內容
       setBulletItems([
         `PE 32-file: ${is_pe32}`,
         `is .exe: ${is_exe}`,
         `is UPX compressed: ${is_upx}`,
+        // ✨ (新增) 加入 Heatmap 狀態
+        attentionHeatmap ? "Attention heatmap ready ✅" : "No heatmap ❌",
       ]);
       setBulletsTitle(`${file.name} — 分析完成`);
 
-      // (B) 等待 AnimatedBullets 動畫 (例如 1.5 秒)
+      // (B) 等待 AnimatedBullets 動畫 (保留 (1).js 的)
       await wait(1500); 
 
-      // (C) 最後才呼叫 onFileDone，將資料加入下方的表格
+      // (C) 最後才呼叫 onFileDone (✨ 整合 heatmap)
       if (det.is_pe32 && det.is_exe && det.unpack_success) {
         console.log("✅ File passed all checks, sending to Home");
         
@@ -172,27 +172,35 @@ export default function useFileProcessor(props = {}) {
             source_file: pred.embedding?.source_file || null,
             attention_score: pred.embedding?.attention_score || 0
           },
+          // (保留 (1).js 的)
           somAnalysis: somInfo,
-          somAnalysisRaw: som
+          somAnalysisRaw: som,
+          
+          // ✨ (新增) 從 useFileProcessor.js 來的 Heatmap 欄位
+          attention_heatmap: attentionHeatmap,
+          similar_heatmap_image: result.similar_heatmap_image || null,
+          most_similar_in_label: result.most_similar_in_label || null,
+          similarity_score: result.similarity_score || null,
         });
       } else {
         console.log("⚠️ File failed checks");
       }
 
     } catch (err) {
-      // --- 錯誤處理 (與之前相同) ---
+      // --- 錯誤處理 (✨ 整合) ---
       console.error("❌ Processing error:", err);
       setBulletItems([
         "分析失敗",
         err.message,
         "請檢查檔案或伺服器",
+        "", // ✨ (新增) 確保有 4 個項目
       ]);
       setBulletsTitle(`${file.name} (Error)`);
       setCircleStep(0); 
       setCircleDone([false, false, false, false]);
 
     } finally {
-      // --- 7. 準備處理下一個檔案 (與之前相同) ---
+      // --- 7. 準備處理下一個檔案 (保留 (1).js 的) ---
       setTimeout(() => {
         setProcessing(false);
 
@@ -214,6 +222,7 @@ export default function useFileProcessor(props = {}) {
     }
   }
 
+  // (保留 (1).js 的 handleFiles)
   function handleFiles(files) {
     const valid = Array.from(files).filter(f => {
       const name = f.name.toLowerCase();
@@ -238,6 +247,7 @@ export default function useFileProcessor(props = {}) {
     }
   }
 
+  // (保留 (1).js 的 exports)
   return {
     bulletItems,
     bulletsTitle,
