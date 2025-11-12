@@ -46,8 +46,8 @@ export default function Home() {
     }, []);
 
     // ===== ✨ (from home.jsx) Space B & A 設定 =====
-    const SPACE_B_URL = "https://lyi029-model-update-test.hf.space";
-    const SPACE_A_URL = "https://lyi029-test.hf.space";
+    const SPACE_B_URL = "https://malvec-model-update-test.hf.space";
+    const SPACE_A_URL = "https://malvec-test.hf.space";
     
     // ===== ✨ (from home.jsx) Label Modal State =====
     const [labelModal, setLabelModal] = useState({
