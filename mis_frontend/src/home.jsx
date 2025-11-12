@@ -387,7 +387,7 @@ export default function Home() {
                     )}
 
                     <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-lg font-semibold text-slate-800">模型待訓練資料</h3>
+                        <h3 className="text-lg font-semibold text-slate-800">已分析完成</h3>
                         {/* (from home(1)) 保留 Bulk Label 按鈕 */}
                         <button
                             className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm"
