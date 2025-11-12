@@ -532,7 +532,7 @@ export default function ReportPage() {
         y0: markerY - markerRadius,
         y1: markerY + markerRadius,
         fillcolor: "black",
-        line: { width: 2, color: "white" },
+        line: { width: 0 },
         layer: "above",
         opacity: 1
       });

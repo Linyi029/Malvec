@@ -247,6 +247,14 @@ export default function useFileProcessor(props = {}) {
     }
   }
 
+  function handleCircleDone(index) {
+    setCircleDone(prev => {
+      const newDone = [...prev];
+      newDone[index] = true;
+      return newDone;
+    });
+  }
+
   // (保留 (1).js 的 exports)
   return {
     bulletItems,
@@ -257,5 +265,6 @@ export default function useFileProcessor(props = {}) {
     circleStep,
     circleDone,
     handleFiles,
+    handleCircleDone,
   };
 }
