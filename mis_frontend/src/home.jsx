@@ -389,12 +389,12 @@ export default function Home() {
                     <div className="flex items-start justify-between mb-3">
                         <h3 className="text-lg font-semibold text-slate-800">已分析完成</h3>
                         {/* (from home(1)) 保留 Bulk Label 按鈕 */}
-                        <button
+                        {/* <button
                             className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm"
                             onClick={() => setBulkOpen(true)}
                         >
                             匯入 true label（JSON / 貼上代碼）
-                        </button>
+                        </button> */}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -403,7 +403,6 @@ export default function Home() {
                                 <tr className="text-left text-slate-600 border-b">
                                     <th className="py-2 pr-4">Filename</th>
                                     <th className="py-2 pr-4">Predicted label</th>
-                                    <th className="py-2 pr-4">True label</th> {/* (from home(1)) */}
                                     <th className="py-2 pr-4">Action</th>
                                 </tr>
                             </thead>
@@ -412,7 +411,7 @@ export default function Home() {
                                     <tr key={row.id} className="border-b last:border-b-0">
                                         <td className="py-2 pr-4 font-mono">{row.filename}</td>
                                         <td className="py-2 pr-4">{row.pred}</td>
-                                        <td className="py-2 pr-4">{row.trueLabel}</td> {/* (from home(1)) */}
+                                       
                                         <td className="py-2 pr-4">
                                             <button
                                                 className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700"
@@ -458,13 +457,7 @@ export default function Home() {
 
                     <div className="mt-4">
                         {/* (from home(1)) 保留此按鈕觸發 TrainingModal */}
-                        <button
-                            className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-300"
-                            disabled={!eligible.length}
-                            onClick={() => setTrainOpen(true)}
-                        >
-                            Train Model ({eligible.length})
-                        </button>
+                        
                     </div>
                 </section>
             </main>

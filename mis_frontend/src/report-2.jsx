@@ -29,8 +29,10 @@ const DATA_URLS = {
   tsnePoints:
     "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/tsne_extracols.json",
   somUrls: [ // (from report(1))
-    "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
-    "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
+    //"https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
+    // "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
+    "https://gist.githubusercontent.com/111306047/452625822b11fc860ab0b0d30594f81c/raw/fa1ee25ffed45b31d3219a5be7568d7f97a99086/APT30.json",
+    "https://gist.githubusercontent.com/111306047/1bc7e9713b5faf894897f864d976ac4e/raw/bdbfc6c0cc60b32de86a60d4e7fb9a6bf0cbd28d/Dropper.json",
   ],
 };
 
@@ -221,7 +223,28 @@ export default function ReportPage() {
     return arr;
   }, [labelList, familyScores]);
 
-  const labelColors = useMemo(() => assignColors(allLabelNames), [allLabelNames]);
+  const labelColors = useMemo(() => {
+    // 1. 這裡使用 'allLabelNames' (而不是 'labelList')
+    //    這能確保 'familyScores' 裡的標籤 (如 GOODWARE) 也能被分配到顏色
+    const colorMap = assignColors(allLabelNames);
+
+    // 2. ✨ 套用您剛才提供的「顏色補丁」邏輯
+    if (colorMap["ADWARE.GATOR"]) {
+      colorMap["Non-APT30"] = colorMap["ADWARE.GATOR"];
+    }
+    if (colorMap["ADWARE.GENERIC"]) {
+      colorMap["APT30"] = colorMap["ADWARE.GENERIC"];
+    }
+    if (colorMap["ADWARE.GATOR"]) {
+      colorMap["Non-Dropper"] = colorMap["ADWARE.GATOR"];
+    }
+    if (colorMap["ADWARE.GENERIC"]) {
+      colorMap["Dropper"] = colorMap["ADWARE.GENERIC"];
+    }
+
+    // 3. 回傳修改後的 colorMap
+    return colorMap;
+  }, [allLabelNames]); // <-- 這裡的依賴項必須是 allLabelNames
 
   // (from report(1))
   const tsneTraces = useMemo(() => {
@@ -457,9 +480,11 @@ export default function ReportPage() {
     };
     const shapes = [];
     const OTHER_KEY = "OTHER";
+
     for (const c of somArray) {
       const x = c.col, y = c.row;
       const props = Object.entries(c.proportions || {}).map(([lab, v]) => [lab, Number(v) || 0]);
+      
       props.sort((a, b) => b[1] - a[1]);
       const top = props.slice(0, k);
       const rest = props.slice(k);
@@ -469,6 +494,8 @@ export default function ReportPage() {
         top.push([OTHER_KEY, otherVal]);
       }
       const total = top.reduce((a, [, v]) => a + v, 0) || 1;
+
+      // 🟢 (A) 永遠繪製白色背景
       shapes.push({
         type: "circle",
         xref: "x", yref: "y",
@@ -478,7 +505,9 @@ export default function ReportPage() {
         layer: "below",
         opacity: 1
       });
-      let acc = 0;
+
+        // 🟢 (B) 繪製餅圖切片
+        let acc = 0;
       for (const [lab, val] of top) {
         const frac = (val || 0) / total;
         if (frac <= 0) continue;
@@ -512,18 +541,18 @@ export default function ReportPage() {
       const markerY = newSamplePos.row;
       const markerRadius = 0.15;
       console.log(`🎯 Adding marker at row=${markerY}, col=${markerX}`);
-      shapes.push({
-        type: "circle",
-        xref: "x", yref: "y",
-        x0: markerX - markerRadius * 1.3,
-        x1: markerX + markerRadius * 1.3,
-        y0: markerY - markerRadius * 1.3,
-        y1: markerY + markerRadius * 1.3,
-        fillcolor: "white",
-        line: { width: 0 },
-        layer: "above",
-        opacity: 0.9
-      });
+      // shapes.push({
+      //   type: "circle",
+      //   xref: "x", yref: "y",
+      //   x0: markerX - markerRadius * 1.3,
+      //   x1: markerX + markerRadius * 1.3,
+      //   y0: markerY - markerRadius * 1.3,
+      //   y1: markerY + markerRadius * 1.3,
+      //   fillcolor: "rgba(0,0,0,0)",
+      //   line: { width: 0 },
+      //   layer: "above",
+      //   opacity: 0.9
+      // });
       shapes.push({
         type: "circle",
         xref: "x", yref: "y",
@@ -715,12 +744,8 @@ export default function ReportPage() {
             <span className="text-lg font-semibold">Analysis results</span>
           </div>
           <div className="flex gap-3">
-            <button 
-              onClick={() => navigate("/")} 
-              className="px-4 py-2 rounded-xl bg-white border border-slate-200 shadow hover:bg-slate-50"
-            >
-              Back to Main
-            </button>
+            <button onClick={() => navigate("/")}
+              className="px-4 py-2 rounded-xl bg-white border border-slate-200 shadow hover:bg-slate-50">Back</button>
             <button 
               onClick={handlePDF} 
               className="px-4 py-2 rounded-xl bg-white border border-slate-200 shadow hover:bg-slate-50"

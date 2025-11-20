@@ -6,8 +6,10 @@ import { useLocation, useNavigate } from "react-router-dom"; // (from evaluation
 const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";
 const LABEL_LIST_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/label_list.json";
 const somUrls = [
-  "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
-  "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
+  //"https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
+  //"https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
+  "https://gist.githubusercontent.com/111306047/452625822b11fc860ab0b0d30594f81c/raw/fa1ee25ffed45b31d3219a5be7568d7f97a99086/APT30.json",
+  "https://gist.githubusercontent.com/111306047/1bc7e9713b5faf894897f864d976ac4e/raw/bdbfc6c0cc60b32de86a60d4e7fb9a6bf0cbd28d/Dropper.json",
 ]
 
 /** Palette (provided) */
@@ -309,7 +311,7 @@ export default function EvaluationPage() {
         x1: markerX + markerRadius * 1.3,
         y0: markerY - markerRadius * 1.3,
         y1: markerY + markerRadius * 1.3,
-        fillcolor: "white",
+        fillcolor: "rgba(0,0,0,0)",
         line: { width: 0 },
         layer: "above",
         opacity: 0.9
@@ -523,7 +525,39 @@ export default function EvaluationPage() {
   const labelColors = useMemo(() => {
     if (!labelList) return {};
     const uniq = Array.isArray(labelList) ? Array.from(new Set(labelList)).filter(Boolean) : [];
-    return assignColors(uniq);
+    const colorMap = assignColors(uniq);
+
+    if (colorMap["ADWARE.GATOR"]) {
+      // 建立一個新鍵 "Non-APT30"，並將顏色複製過去
+      // 這裡的 "Non-APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
+      colorMap["Non-APT30"] = colorMap["ADWARE.GATOR"];
+    }
+    
+    // 檢查 'ADWARE.GENERIC' 是否存在
+    if (colorMap["ADWARE.GENERIC"]) {
+      // 建立一個新鍵 "APT30"，並將顏色複製過去
+      // 這裡的 "APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
+      colorMap["APT30"] = colorMap["ADWARE.GENERIC"];
+    }
+
+    // 3. ✨ 顏色補丁 (Dropper) - 新增
+    // 假設舊鍵是 "DROPPER" (在 label_list.json 中)
+    // 假設新鍵是 "dropper" (在 Dropper.json 中)
+    if (colorMap["ADWARE.GATOR"]) {
+      // 建立一個新鍵 "Non-APT30"，並將顏色複製過去
+      // 這裡的 "Non-APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
+      colorMap["Non-Dropper"] = colorMap["ADWARE.GATOR"];
+    }
+    
+    // 檢查 'ADWARE.GENERIC' 是否存在
+    if (colorMap["ADWARE.GENERIC"]) {
+      // 建立一個新鍵 "APT30"，並將顏色複製過去
+      // 這裡的 "APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
+      colorMap["Dropper"] = colorMap["ADWARE.GENERIC"];
+    }
+
+    // 3. 回傳修改後的 colorMap
+    return colorMap;
   }, [labelList]);
 
   const filteredPoints = useMemo(() => {

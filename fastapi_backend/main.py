@@ -103,7 +103,8 @@ async def trigger_hf_prediction(filename: str):
     print(f"📂 Found {len(txt_files)} segment files")
     
     # ✅ 一次上傳所有檔案
-    predict_url = f"{HF_SPACE_BASE}/predict"
+    #predict_url = f"{HF_SPACE_BASE}/predict"
+    predict_url = f"{HF_SPACE_BASE}/predict?original_filename={filename}"
     
     try:
         # 準備所有檔案
