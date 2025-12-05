@@ -6,8 +6,6 @@ import { useLocation, useNavigate } from "react-router-dom"; // (from evaluation
 const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";
 const LABEL_LIST_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/label_list.json";
 const somUrls = [
-  //"https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_APT30.json",
-  //"https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/som_dropper.json",
   "https://gist.githubusercontent.com/111306047/452625822b11fc860ab0b0d30594f81c/raw/fa1ee25ffed45b31d3219a5be7568d7f97a99086/APT30.json",
   "https://gist.githubusercontent.com/111306047/1bc7e9713b5faf894897f864d976ac4e/raw/bdbfc6c0cc60b32de86a60d4e7fb9a6bf0cbd28d/Dropper.json",
 ]
@@ -635,15 +633,23 @@ export default function EvaluationPage() {
           <div className="border border-slate-200 rounded-2xl bg-white shadow-sm p-4">
             <div className="flex items-center gap-4">
               <div className="flex flex-col w-32">
-                <label className="text-xs text-slate-500 mb-1">下限 (first_submission_date)</label>
+                <label className="text-xs text-slate-500 mb-1">oldest </label>
                 <input
+                  type="date"
+                  min={tsToDateStr(timeMin)}       // 需回傳 YYYY-MM-DD
+                  max={tsToDateStr(selMax)}
+                  value={tsToDateStr(selMin)}
+                  onChange={(e) => commitMax(new Date(e.target.value).getTime())}
+                  className="border rounded px-2 py-1"
+                />
+                {/* <input
                   type="number"
                   min={timeMin}
                   max={selMax}
                   value={selMin}
                   onChange={(e) => commitMin(e.target.value)}
                   className="border rounded px-2 py-1"
-                />
+                /> */}
               </div>
               <div className="flex-1">
                 <RangeBar
@@ -663,13 +669,23 @@ export default function EvaluationPage() {
                 </div>
               </div>
               <div className="flex flex-col w-32">
-                <label className="text-xs text-slate-500 mb-1">上限 (first_submission_date)</label>
-                <input
+                <label className="text-xs text-slate-500 mb-1">latest </label>
+                {/* <input
                   type="number"
                   min={selMin}
                   max={timeMax}
                   value={selMax}
                   onChange={(e) => commitMax(e.target.value)}
+                  className="border rounded px-2 py-1"
+                /> */}
+
+
+                    <input
+                  type="date"
+                  min={tsToDateStr(selMin)}       // 需回傳 YYYY-MM-DD
+                  max={tsToDateStr(timeMax)}
+                  value={tsToDateStr(selMax)}
+                  onChange={(e) => commitMax(new Date(e.target.value).getTime())}
                   className="border rounded px-2 py-1"
                 />
               </div>
