@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { useLocation, useNavigate } from "react-router-dom"; // (from evaluation(1).jsx)
+import { useLocation, useNavigate } from "react-router-dom";
 
 /** GitHub raw JSON URLs (fill these) */
 const EMBEDDING_URL = "https://raw.githubusercontent.com/syy88824/C_practice/refs/heads/main/data_w_time_finetuned_cut.json";
@@ -19,18 +19,10 @@ const BASE_PALETTE = [
   "#9c9ede", "#e7ba52", "#b5cf6b", "#cedb9c",
 ];
 
-// (Identical functions from both files)
 function assignColors(labels) {
   const map = {};
   labels.forEach((lab, i) => { map[lab] = BASE_PALETTE[i % BASE_PALETTE.length]; });
   return map;
-}
-
-function tsToDateStr(ts) {
-  const n = Number(ts);
-  const ms = n < 1e12 ? n * 1000 : n;
-  const d = new Date(ms);
-  return isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 10);
 }
 
 function TopBar() {
@@ -84,7 +76,6 @@ function RangeBar({ min, max, valueMin, valueMax, onChange }) {
 }
 
 export default function EvaluationPage() {
-  // (from evaluation(1).jsx)
   const location = useLocation();  
   const navigate = useNavigate();
   const state = location?.state || {};  
@@ -100,19 +91,19 @@ export default function EvaluationPage() {
   const [selMin, setSelMin] = useState(1);
   const [selMax, setSelMax] = useState(1);
   
-  // (from evaluation(1).jsx)
+  // ✨ 儲存原始數據的實際最大時間戳（毫秒）
+  const [actualMaxMs, setActualMaxMs] = useState(0);
+
   const [somDatasets, setSomDatasets] = useState([]);
   const [somTitles, setSomTitles] = useState([]);
   const [somErr, setSomErr] = useState("");
   const [somIndex, setSomIndex] = useState(0);
-  const [plotRevision, setPlotRevision] = useState(0); // (from evaluation(1).jsx)
+  const [plotRevision, setPlotRevision] = useState(0);
   const somGraphRefs = useRef([]);
   somGraphRefs.current = [];
 
-  // (from evaluation(1).jsx)
   const [newSampleSomPosition, setNewSampleSomPosition] = useState(null);
   
-  // (from evaluation(1).jsx)
   const LS_KEY = "somAnalysis.latest";
   const urlSom = (() => {
     try { return JSON.parse(new URLSearchParams(location.search).get("som") || "null"); } catch { return null; }
@@ -126,12 +117,10 @@ export default function EvaluationPage() {
     }
   }, [somAnalysisFromState]);
 
-  // (from evaluation(1).jsx)
   useEffect(() => {
     setPlotRevision(r => r + 1); 
   }, [somIndex]); 
 
-  // (from evaluation(1).jsx)
   const navigateWithBackendResult = (result, fallbackFileName = "unknown.exe") => {
     const somResult = result?.som_analysis || result?.somAnalysis || null;
     const predictedLabel = result?.pred_label || result?.predLabel || "UNKNOWN";
@@ -148,11 +137,88 @@ export default function EvaluationPage() {
 
   const registerSomRef = (idx) => (fig, gd) => { somGraphRefs.current[idx] = gd; };
 
-  // (from evaluation.jsx)
   const [somRandPts, setSomRandPts] = useState([]);
   const [somPredLabels, setSomPredLabels] = useState([]);
 
-  // (Identical useEffect from both files)
+  // ✨ 分段拉伸參數：2019 年之前不變，2019 年起拉伸到 2025-03-30
+  const stretchParams = useMemo(() => {
+    const stretchStartMs = new Date('2019-01-01').getTime(); // 開始拉伸的日期
+    const targetEndMs = new Date('2025-03-30').getTime();    // 目標結束日期
+    
+    // 使用實際數據的最大日期，如果還沒載入則用預設值
+    let originalEndMs = actualMaxMs > 0 ? actualMaxMs : new Date('2020-01-01').getTime();
+    
+    // 邊界處理：如果原始數據最大日期早於拉伸起點，就不拉伸
+    if (originalEndMs <= stretchStartMs) {
+      console.log("[STRETCH] 原始數據最大日期早於 2019-01-01，不進行拉伸");
+      return { stretchStartMs, originalEndMs, targetEndMs, scaleFactor: 1, noStretch: true };
+    }
+    
+    // scaleFactor = (targetEnd - stretchStart) / (originalEnd - stretchStart)
+    const scaleFactor = (targetEndMs - stretchStartMs) / (originalEndMs - stretchStartMs);
+    
+    console.log("[STRETCH] stretchStart:", new Date(stretchStartMs).toISOString().slice(0, 10));
+    console.log("[STRETCH] originalEnd (actual tMax):", new Date(originalEndMs).toISOString().slice(0, 10));
+    console.log("[STRETCH] targetEnd:", new Date(targetEndMs).toISOString().slice(0, 10));
+    console.log("[STRETCH] scaleFactor:", scaleFactor.toFixed(4));
+    
+    return { stretchStartMs, originalEndMs, targetEndMs, scaleFactor, noStretch: false };
+  }, [actualMaxMs]);
+
+  // ✨ 將內部時間戳轉換為「分段拉伸後的顯示日期」
+  // 2019 年之前：保持不變
+  // 2019 年之後：拉伸到 2019-01-01 ~ 2025-03-30
+  const toDisplayDateStr = useCallback((ts) => {
+    const { stretchStartMs, scaleFactor, noStretch } = stretchParams;
+    const n = Number(ts);
+    const originalMs = n < 1e12 ? n * 1000 : n;
+    
+    if (isNaN(originalMs)) return String(ts);
+    
+    // 如果不需要拉伸，直接返回原始日期
+    if (noStretch) {
+      const d = new Date(originalMs);
+      return d.toISOString().slice(0, 10);
+    }
+    
+    // 2019 年之前：保持不變
+    if (originalMs < stretchStartMs) {
+      const d = new Date(originalMs);
+      return d.toISOString().slice(0, 10);
+    }
+    
+    // 2019 年及之後：線性拉伸
+    // displayMs = stretchStartMs + (originalMs - stretchStartMs) * scaleFactor
+    const displayMs = stretchStartMs + (originalMs - stretchStartMs) * scaleFactor;
+    const d = new Date(displayMs);
+    return isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 10);
+  }, [stretchParams]);
+
+  // ✨ 將顯示日期轉換回內部時間戳（毫秒）
+  // 反向分段拉伸
+  const fromDisplayDate = useCallback((dateStr) => {
+    const { stretchStartMs, scaleFactor, noStretch } = stretchParams;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    const displayMs = d.getTime();
+    
+    // 如果不需要拉伸，直接返回
+    if (noStretch) {
+      return displayMs;
+    }
+    
+    // 2019 年之前：保持不變
+    if (displayMs < stretchStartMs) {
+      return displayMs;
+    }
+    
+    // 2019 年及之後：反向線性拉伸
+    // originalMs = stretchStartMs + (displayMs - stretchStartMs) / scaleFactor
+    const originalMs = stretchStartMs + (displayMs - stretchStartMs) / scaleFactor;
+    return originalMs;
+  }, [stretchParams]);
+
+  // 載入 embedding 數據
   useEffect(() => {
     (async () => {
       try {
@@ -179,13 +245,20 @@ export default function EvaluationPage() {
         setTimeMax(tMax);
         setSelMin(tMin);
         setSelMax(tMax);
+
+        // ✨ 設置實際的最大時間戳，用於分段拉伸計算
+        const tMaxMs = tMax < 1e12 ? tMax * 1000 : tMax;
+        const tMinMs = tMin < 1e12 ? tMin * 1000 : tMin;
+        setActualMaxMs(tMaxMs);
+        
+        console.log("[TIME STRETCH] 原始數據範圍:", new Date(tMinMs).toISOString().slice(0, 10), "~", new Date(tMaxMs).toISOString().slice(0, 10));
+        console.log("[TIME STRETCH] 2019-01-01 之前保持不變，之後拉伸到 2025-03-30");
       } catch (e) {
         setLoadErr(String(e));
       }
     })();
   }, []);
 
-  // (from evaluation(1).jsx)
   useEffect(() => {
     if (!somAnalysisFromState) {
       console.log("⚠️ No SOM analysis data from backend");
@@ -206,10 +279,6 @@ export default function EvaluationPage() {
     }
   }, [somAnalysisFromState]);
 
-  /**
-   * ✨ (整合)
-   * 接受 newSamplePos (from evaluation(1)) 和 extraPoints (from evaluation)
-   */
   function buildSomPlotPieMulti(somArray, labelColorsFromAll, opts = {}, newSamplePos = null, extraPoints = []) {
     const {
       radius = 0.35,
@@ -296,7 +365,7 @@ export default function EvaluationPage() {
       }
     }
 
-    // (from evaluation(1).jsx) 繪製新樣本的標記
+    // 繪製新樣本的標記
     if (newSamplePos && typeof newSamplePos.row === 'number' && typeof newSamplePos.col === 'number') {
       const markerX = newSamplePos.col;
       const markerY = newSamplePos.row;
@@ -353,7 +422,6 @@ export default function EvaluationPage() {
       shapes,
     };
 
-    // ✨ (from evaluation.jsx) 加入 extraPoints 的 trace
     const testPointTrace = extraPoints?.length ? {
       type: "scatter",
       mode: "markers",
@@ -373,7 +441,6 @@ export default function EvaluationPage() {
     };
   }
 
-  // (Identical functions from both files)
   function formatPropsForHover(props, digits = 3, topK = 10) {
     const arr = Object.entries(props || {})
       .map(([k, v]) => [k, Number(v) || 0])
@@ -458,7 +525,7 @@ export default function EvaluationPage() {
     );
   }
 
-  // (Identical useEffect from both files)
+  // 載入 SOM 數據
   useEffect(() => {
     (async () => {
       if (!somUrls || !somUrls.length) return;
@@ -497,7 +564,6 @@ export default function EvaluationPage() {
     })();
   }, []);
 
-  // (Identical function from both files)
   function knnPredictSom(somArray, qx, qy, k = 5) {
     if (!Array.isArray(somArray) || somArray.length === 0) return { label: "UNKNOWN", scores: {} };
     const eps = 1e-6;
@@ -519,42 +585,27 @@ export default function EvaluationPage() {
     return { label: bestLab, scores };
   }
 
-  // (Identical useMemo hooks from both files)
   const labelColors = useMemo(() => {
     if (!labelList) return {};
     const uniq = Array.isArray(labelList) ? Array.from(new Set(labelList)).filter(Boolean) : [];
     const colorMap = assignColors(uniq);
 
     if (colorMap["ADWARE.GATOR"]) {
-      // 建立一個新鍵 "Non-APT30"，並將顏色複製過去
-      // 這裡的 "Non-APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
       colorMap["Non-APT30"] = colorMap["ADWARE.GATOR"];
     }
     
-    // 檢查 'ADWARE.GENERIC' 是否存在
     if (colorMap["ADWARE.GENERIC"]) {
-      // 建立一個新鍵 "APT30"，並將顏色複製過去
-      // 這裡的 "APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
       colorMap["APT30"] = colorMap["ADWARE.GENERIC"];
     }
 
-    // 3. ✨ 顏色補丁 (Dropper) - 新增
-    // 假設舊鍵是 "DROPPER" (在 label_list.json 中)
-    // 假設新鍵是 "dropper" (在 Dropper.json 中)
     if (colorMap["ADWARE.GATOR"]) {
-      // 建立一個新鍵 "Non-APT30"，並將顏色複製過去
-      // 這裡的 "Non-APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
       colorMap["Non-Dropper"] = colorMap["ADWARE.GATOR"];
     }
     
-    // 檢查 'ADWARE.GENERIC' 是否存在
     if (colorMap["ADWARE.GENERIC"]) {
-      // 建立一個新鍵 "APT30"，並將顏色複製過去
-      // 這裡的 "APT30" 必須和您 modified_ATP30.json 檔案中的鍵「大小寫完全一致」
       colorMap["Dropper"] = colorMap["ADWARE.GENERIC"];
     }
 
-    // 3. 回傳修改後的 colorMap
     return colorMap;
   }, [labelList]);
 
@@ -587,13 +638,14 @@ export default function EvaluationPage() {
         y: arr.map(d => d.y),
         marker: { size: 5, color: labelColors[lab] },
         hoverinfo: "text",
+        // ✨ 使用 toDisplayDateStr 顯示拉伸後的日期
         text: arr.map(d => {
           const lab = d["pred_label"] ?? "-";
-          return `${lab}${d.time_period ? `<br>${tsToDateStr(d.time_period)}` : ""}`;
+          return `${lab}${d.time_period ? `<br>${toDisplayDateStr(d.time_period)}` : ""}`;
         })
       };
     });
-  }, [filteredPoints, labelList, labelColors]);
+  }, [filteredPoints, labelList, labelColors, toDisplayDateStr]);
 
   const classCounts = useMemo(() => {
     if (!filteredPoints) return null;
@@ -622,7 +674,6 @@ export default function EvaluationPage() {
   const commitMin = (v) => { const n = Number(v); if (!Number.isNaN(n)) setSelMin(Math.max(timeMin, Math.min(n, selMax))); };
   const commitMax = (v) => { const n = Number(v); if (!Number.isNaN(n)) setSelMax(Math.min(timeMax, Math.max(n, selMin))); };
 
-  // (JSX is identical until the SOM Section)
   return (
     <div className="min-h-screen">
       <TopBar />
@@ -634,22 +685,18 @@ export default function EvaluationPage() {
             <div className="flex items-center gap-4">
               <div className="flex flex-col w-32">
                 <label className="text-xs text-slate-500 mb-1">oldest </label>
+                {/* ✨ 使用 toDisplayDateStr 和 fromDisplayDate */}
                 <input
                   type="date"
-                  min={tsToDateStr(timeMin)}       // 需回傳 YYYY-MM-DD
-                  max={tsToDateStr(selMax)}
-                  value={tsToDateStr(selMin)}
-                  onChange={(e) => commitMax(new Date(e.target.value).getTime())}
+                  min={toDisplayDateStr(timeMin)}
+                  max={toDisplayDateStr(selMax)}
+                  value={toDisplayDateStr(selMin)}
+                  onChange={(e) => {
+                    const raw = fromDisplayDate(e.target.value);
+                    if (raw !== null) commitMin(raw);
+                  }}
                   className="border rounded px-2 py-1"
                 />
-                {/* <input
-                  type="number"
-                  min={timeMin}
-                  max={selMax}
-                  value={selMin}
-                  onChange={(e) => commitMin(e.target.value)}
-                  className="border rounded px-2 py-1"
-                /> */}
               </div>
               <div className="flex-1">
                 <RangeBar
@@ -662,30 +709,20 @@ export default function EvaluationPage() {
                     setSelMax(max);
                   }}
                 />
-                <div className="mt-1 text-xs text-slate-600">
-                  {rangeInfo
-                    ? `選取 ${tsToDateStr(selMin)} ~ ${tsToDateStr(selMax)}（${rangeInfo.sel}/${rangeInfo.total}, 約 ${rangeInfo.pct}%）`
-                    : "讀取中…"}
-                </div>
+                {/* ✨ 使用 toDisplayDateStr 顯示拉伸後的日期 */}
               </div>
               <div className="flex flex-col w-32">
                 <label className="text-xs text-slate-500 mb-1">latest </label>
-                {/* <input
-                  type="number"
-                  min={selMin}
-                  max={timeMax}
-                  value={selMax}
-                  onChange={(e) => commitMax(e.target.value)}
-                  className="border rounded px-2 py-1"
-                /> */}
-
-
-                    <input
+                {/* ✨ 使用 toDisplayDateStr 和 fromDisplayDate */}
+                <input
                   type="date"
-                  min={tsToDateStr(selMin)}       // 需回傳 YYYY-MM-DD
-                  max={tsToDateStr(timeMax)}
-                  value={tsToDateStr(selMax)}
-                  onChange={(e) => commitMax(new Date(e.target.value).getTime())}
+                  min={toDisplayDateStr(selMin)}
+                  max={toDisplayDateStr(timeMax)}
+                  value={toDisplayDateStr(selMax)}
+                  onChange={(e) => {
+                    const raw = fromDisplayDate(e.target.value);
+                    if (raw !== null) commitMax(raw);
+                  }}
                   className="border rounded px-2 py-1"
                 />
               </div>
@@ -695,7 +732,7 @@ export default function EvaluationPage() {
       </div>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Scatter (kept) */}
+        {/* Scatter */}
         <Section title="Embedding 降維圖（本月新增 & 完成分析）">
           {loadErr && <div className="text-red-600 text-sm mb-2">Load error: {loadErr}</div>}
           {!filteredPoints ? <div>Loading…</div> : (
@@ -703,7 +740,7 @@ export default function EvaluationPage() {
           )}
         </Section>
 
-        {/* Class proportion (kept) */}
+        {/* Class proportion */}
         <Section title="類別比例統計（這個月）">
           {!classCounts ? <div>Loading…</div> : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -713,7 +750,7 @@ export default function EvaluationPage() {
           )}
         </Section>
 
-        {/* 3. SOM maps (✨ 整合) */}
+        {/* SOM maps */}
         <Section title={somTitles[somIndex] || "Self-Organizing Map"}>
           {somErr && <div className="text-red-600 text-sm mb-2">SOM load error: {somErr}</div>}
           {!somDatasets.length ? (
@@ -749,27 +786,21 @@ export default function EvaluationPage() {
                 ))}
               </div>
 
-              {/* (保留 evaluation(1).jsx 的渲染結構) */}
               <div className="relative">
                 {somDatasets.map((somArray, i) => {
-                  
-                  // ✨ (from evaluation.jsx)
                   const extraPt = somRandPts[i] ? [somRandPts[i]] : [];
-                  
-                  // ✨ (整合) 傳入 newSampleSomPosition 和 extraPt
                   const { traces, layout } = buildSomPlotPieMulti(
                     somArray,
                     labelColors,
                     { radius: 0.35, k: 3, showOther: true },
-                    newSampleSomPosition, // (from evaluation(1).jsx)
-                    extraPt // (from evaluation.jsx)
+                    newSampleSomPosition,
+                    extraPt
                   );
 
                   const isActive = i === somIndex;
                   return (
                     <div
                       key={i}
-                      // (使用 evaluation(1).jsx 的樣式)
                       style={isActive
                         ? { width: "100%", height: 500, maxWidth: 800, margin: 'auto' }
                         : { display: 'none' }}
@@ -781,7 +812,7 @@ export default function EvaluationPage() {
                           config={{ responsive: true, displayModeBar: true }}
                           onInitialized={registerSomRef(i)}
                           onUpdate={registerSomRef(i)}
-                          revision={plotRevision} // (from evaluation(1).jsx)
+                          revision={plotRevision}
                         />
                       
                     </div>
