@@ -143,7 +143,7 @@ export default function EvaluationPage() {
   // ✨ 分段拉伸參數：2019 年之前不變，2019 年起拉伸到 2025-03-30
   const stretchParams = useMemo(() => {
     const stretchStartMs = new Date('2019-01-01').getTime(); // 開始拉伸的日期
-    const targetEndMs = new Date('2025-03-30').getTime();    // 目標結束日期
+    const targetEndMs = new Date('2025-12-08').getTime();    // 目標結束日期
     
     // 使用實際數據的最大日期，如果還沒載入則用預設值
     let originalEndMs = actualMaxMs > 0 ? actualMaxMs : new Date('2020-01-01').getTime();
